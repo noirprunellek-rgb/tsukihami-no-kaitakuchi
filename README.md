@@ -26,6 +26,13 @@
 - [初回プロトタイプルール](docs/prototype-rules.md)
 - [コンポーネント一覧](docs/components.md)
 - [デザインノート](docs/design-notes.md)
+- [Webプロトタイプ](web/README.md)
+
+## Webで遊ぶ
+
+まずは同じ画面を見ながら遊ぶ進行補助アプリとして試作しています。
+
+ローカルでは `web/index.html` をブラウザで開くと遊べます。
 
 ## ライセンス
 
