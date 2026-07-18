@@ -8,3 +8,6 @@ Thumbs.db
 
 # Local notes
 *.local.md
+
+# Local Firebase web config
+web/firebase-config.js

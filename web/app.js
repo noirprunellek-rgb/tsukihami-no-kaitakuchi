@@ -1,3 +1,5 @@
+const firebaseSdkVersion = "10.12.5";
+
 const rolesByCount = {
   4: ["航海士", "医師", "大工", "探索者"],
   5: ["航海士", "医師", "大工", "探索者", "記録係"],
@@ -21,15 +23,25 @@ const tileInfo = {
   cave: { label: "洞窟", action: "部品", icon: "洞", color: "#4f4b5d" },
   ruin: { label: "遺跡", action: "手がかり", icon: "跡", color: "#8a6a45" },
   wreck: { label: "難破船", action: "修理", icon: "船", color: "#9a4f3f" },
+  jungle: { label: "密林", action: "食料", icon: "実", color: "#386b3f" },
+  marsh: { label: "沼", action: "危険", icon: "沼", color: "#536b62" },
+  cliff: { label: "崖", action: "見張り", icon: "崖", color: "#805f4a" },
 };
 
-const layoutRows = [4, 5, 6, 5, 4];
-const terrainDeck = [
-  "beach", "forest", "forest", "forest", "rock", "rock",
-  "swamp", "river", "river", "hill", "hill", "cave",
-  "cave", "ruin", "ruin", "wreck", "forest", "rock",
-  "swamp", "river", "hill", "cave", "ruin", "wreck",
+const layoutRows = [5, 6, 7, 8, 9, 8, 7, 6, 5];
+const terrainBag = [
+  "forest", "forest", "forest", "forest", "forest", "forest",
+  "rock", "rock", "rock", "rock", "swamp", "swamp", "swamp",
+  "river", "river", "river", "river", "river", "hill", "hill",
+  "hill", "cave", "cave", "cave", "ruin", "ruin", "ruin",
+  "wreck", "wreck", "jungle", "jungle", "jungle", "jungle",
+  "marsh", "marsh", "cliff", "cliff",
 ];
+
+const targetByCount = {
+  4: { turn: 14, bridges: 3, repair: 4, signal: 3, route: 3 },
+  5: { turn: 13, bridges: 3, repair: 4, signal: 4, route: 3 },
+};
 
 const state = {
   turn: 1,
@@ -39,8 +51,16 @@ const state = {
   selectedPlayerId: "",
   supplies: { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 },
   progress: { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 },
+  night: { event: "none", visibleRange: 99, note: "" },
+  online: { roomId: "", connected: false, status: "未接続" },
   log: [],
 };
+
+let firebaseApi = null;
+let roomRef = null;
+let unsubscribeRoom = null;
+let applyingRemote = false;
+let syncTimer = null;
 
 const playerCount = document.querySelector("#playerCount");
 const seedInput = document.querySelector("#seedInput");
@@ -54,7 +74,7 @@ const identityDialog = document.querySelector("#identityDialog");
 
 function seededRandom(seed) {
   let value = 0;
-  for (let index = 0; index < seed.length; index += 1) value = (value * 31 + seed.charCodeAt(index)) >>> 0;
+  for (let i = 0; i < seed.length; i += 1) value = (value * 31 + seed.charCodeAt(i)) >>> 0;
   return () => {
     value = (value * 1664525 + 1013904223) >>> 0;
     return value / 4294967296;
@@ -70,12 +90,29 @@ function shuffle(items, random) {
   return copy;
 }
 
+function buildTerrainDeck() {
+  const total = layoutRows.reduce((sum, row) => sum + row, 0);
+  const deck = [];
+  while (deck.length < total) deck.push(...terrainBag);
+  return deck.slice(0, total);
+}
+
 function createMap(random) {
-  const terrains = shuffle(terrainDeck, random);
+  const terrains = shuffle(buildTerrainDeck(), random);
   let index = 0;
   return layoutRows.flatMap((length, row) => Array.from({ length }, (_, col) => {
-    const terrain = row === 0 && col === 1 ? "beach" : terrains[index++];
-    return { id: `t${row}-${col}`, row, col, terrain, bridge: false, damaged: false };
+    let terrain = terrains[index++];
+    if (row === 0 && col === Math.floor(length / 2)) terrain = "beach";
+    if (row === 8 && col === Math.floor(length / 2)) terrain = "wreck";
+    return {
+      id: `t${row}-${col}`,
+      row,
+      col,
+      terrain,
+      bridge: false,
+      damaged: false,
+      explored: terrain === "beach",
+    };
   }));
 }
 
@@ -90,12 +127,6 @@ function renderNameFields() {
     label.append(input);
     nameFields.append(label);
   }
-}
-
-function addLog(text) {
-  state.log.unshift(`T${state.turn}: ${text}`);
-  saveLocal();
-  render();
 }
 
 function startGame() {
@@ -118,66 +149,149 @@ function startGame() {
     isolated: false,
     acted: false,
   }));
-  state.turn = 1;
-  state.phase = "map";
-  state.selectedPlayerId = state.players[0].id;
-  state.supplies = { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 };
-  state.progress = { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 };
-  state.log = ["全員が漂着海岸に流れ着いた。島を探索して脱出条件を満たそう。"];
+  Object.assign(state, {
+    turn: 1,
+    phase: "map",
+    selectedPlayerId: state.players[0].id,
+    supplies: { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 },
+    progress: { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 },
+    night: { event: "none", visibleRange: 99, note: "" },
+    log: ["全員が漂着海岸に流れ着いた。広い島を探索し、目標ターンまでに脱出しよう。"],
+  });
   setupPanel.classList.add("hidden");
   gamePanel.classList.remove("hidden");
-  saveLocal();
-  render();
+  saveAndRender();
+}
+
+function addLog(text) {
+  state.log.unshift(`T${state.turn}: ${text}`);
+  state.log = state.log.slice(0, 60);
+  saveAndRender();
+}
+
+function findTile(id) {
+  return state.map.find((tile) => tile.id === id);
+}
+
+function rowStart(row) {
+  return -Math.floor(layoutRows[row] / 2);
+}
+
+function axial(tile) {
+  return { q: rowStart(tile.row) + tile.col, r: tile.row };
+}
+
+function distance(a, b) {
+  const aa = axial(a);
+  const bb = axial(b);
+  const dq = aa.q - bb.q;
+  const dr = aa.r - bb.r;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
 }
 
 function neighbors(tile) {
-  return state.map.filter((other) => Math.abs(other.row - tile.row) <= 1 && Math.abs(other.col - tile.col) <= 1 && other.id !== tile.id);
+  return state.map.filter((other) => other.id !== tile.id && distance(tile, other) <= 1);
+}
+
+function canSee(tile) {
+  if (state.night.visibleRange >= 99) return true;
+  return state.players.some((player) => distance(findTile(player.tileId), tile) <= state.night.visibleRange);
 }
 
 function moveSelected(tileId) {
   const player = state.players.find((p) => p.id === state.selectedPlayerId);
-  if (!player || player.acted) return;
-  const from = state.map.find((tile) => tile.id === player.tileId);
-  const to = state.map.find((tile) => tile.id === tileId);
+  if (!player || player.acted || player.isolated) return;
+  const from = findTile(player.tileId);
+  const to = findTile(tileId);
+  if (!from || !to) return;
   if (from.id !== to.id && !neighbors(from).some((tile) => tile.id === to.id)) return;
   if (to.terrain === "river" && !to.bridge) {
     player.tileId = to.id;
     player.acted = true;
-    addLog(`${player.name}は川で足止めされた。橋が必要だ。`);
+    to.explored = true;
+    addLog(`${player.name}は川で足止めされた。橋がないと渡り切れない。`);
     return;
   }
   player.tileId = to.id;
   player.acted = true;
+  to.explored = true;
   addLog(`${player.name}は${tileInfo[to.terrain].label}へ移動した。`);
 }
 
 function doTileAction(playerId) {
   const player = state.players.find((p) => p.id === playerId);
-  const tile = state.map.find((t) => t.id === player.tileId);
-  const terrain = tile.terrain;
-  if (terrain === "forest") state.supplies.wood += 1;
-  if (terrain === "rock") state.supplies.stone += 1;
-  if (terrain === "swamp") state.supplies.herb += 1;
-  if (terrain === "cave") { state.supplies.parts += 1; state.progress.danger += 1; }
-  if (terrain === "ruin") state.supplies.clue += 1;
-  if (terrain === "hill") state.progress.signal = Math.min(3, state.progress.signal + 1);
-  if (terrain === "river" && !tile.bridge && state.supplies.wood >= 2 && state.supplies.stone >= 1) {
-    state.supplies.wood -= 2; state.supplies.stone -= 1; tile.bridge = true; state.progress.bridges += 1;
+  if (!player || player.isolated) return;
+  const tile = findTile(player.tileId);
+  if (!tile) return;
+  const beforeDanger = state.progress.danger;
+  if (tile.terrain === "forest") state.supplies.wood += 1;
+  if (tile.terrain === "rock") state.supplies.stone += 1;
+  if (tile.terrain === "jungle") state.supplies.food += 1;
+  if (tile.terrain === "swamp") state.supplies.herb += 1;
+  if (tile.terrain === "marsh") state.progress.danger += 1;
+  if (tile.terrain === "cave") {
+    state.supplies.parts += 1;
+    state.progress.danger += 1;
   }
-  if (terrain === "wreck" && state.supplies.wood >= 1 && state.supplies.parts >= 1) {
-    state.supplies.wood -= 1; state.supplies.parts -= 1; state.progress.repair = Math.min(3, state.progress.repair + 1);
+  if (tile.terrain === "cliff") state.night.visibleRange = 2;
+  if (tile.terrain === "hill") state.progress.signal = Math.min(targets().signal, state.progress.signal + 1);
+  if (tile.terrain === "ruin") {
+    state.supplies.clue += 1;
+    if (state.supplies.clue >= 2 && state.progress.route < targets().route) {
+      state.supplies.clue -= 2;
+      state.progress.route += 1;
+    }
   }
-  if (terrain === "ruin" && state.supplies.clue >= 2) {
-    state.supplies.clue -= 2; state.progress.route = Math.min(2, state.progress.route + 1);
+  if (tile.terrain === "river" && !tile.bridge && state.supplies.wood >= 2 && state.supplies.stone >= 1) {
+    state.supplies.wood -= 2;
+    state.supplies.stone -= 1;
+    tile.bridge = true;
+    tile.damaged = false;
+    state.progress.bridges += 1;
   }
-  addLog(`${player.name}が${tileInfo[terrain].label}のアクションを実行した。`);
+  if (tile.terrain === "river" && tile.damaged && state.supplies.wood >= 1) {
+    state.supplies.wood -= 1;
+    tile.damaged = false;
+  }
+  if (tile.terrain === "wreck" && state.supplies.wood >= 1 && state.supplies.parts >= 1) {
+    state.supplies.wood -= 1;
+    state.supplies.parts -= 1;
+    state.progress.repair = Math.min(targets().repair, state.progress.repair + 1);
+  }
+  const dangerNote = state.progress.danger > beforeDanger ? " 危険が増えた。" : "";
+  addLog(`${player.name}が${tileInfo[tile.terrain].label}の行動を実行した。${dangerNote}`);
+}
+
+function targets() {
+  return targetByCount[state.players.length] || targetByCount[4];
 }
 
 function nextTurn() {
   state.turn += 1;
   state.players.forEach((p) => { p.acted = false; });
+  state.night = { event: "none", visibleRange: 99, note: "" };
   state.phase = "map";
-  addLog("次のターンへ。全員がまた1マス移動できる。");
+  addLog("次のターンへ。夜の視界不良は解除された。");
+}
+
+function triggerNight(eventType) {
+  const events = {
+    fog: { event: "fog", visibleRange: 1, note: "濃霧。各自の周囲1マスしか見えない。" },
+    darkness: { event: "darkness", visibleRange: 0, note: "月隠れ。自分のいるマスしか見えない。" },
+    storm: { event: "storm", visibleRange: 1, note: "嵐。視界1、危険+1。" },
+    lost: { event: "lost", visibleRange: 1, note: "道迷い。選択中の漂流者を隣接マスへずらす。" },
+    none: { event: "none", visibleRange: 99, note: "何も起きなかった。" },
+  };
+  state.night = events[eventType] || events.none;
+  if (eventType === "storm") state.progress.danger += 1;
+  addLog(`夜のアクシデント: ${state.night.note}`);
+}
+
+function damageBridge(tileId) {
+  const tile = findTile(tileId);
+  if (!tile || tile.terrain !== "river" || !tile.bridge) return;
+  tile.damaged = true;
+  addLog("月喰みが橋を損傷させた。");
 }
 
 function showIdentity(playerId) {
@@ -185,7 +299,7 @@ function showIdentity(playerId) {
   document.querySelector("#identityOwner").textContent = player.name;
   document.querySelector("#identityTitle").textContent = `${player.identity} / ${player.role}`;
   document.querySelector("#identityText").textContent = player.identity === "月喰み"
-    ? "あなたは月喰みです。橋、修理、信号、集合を遅らせて脱出を失敗させてください。"
+    ? "あなたは月喰みです。橋、修理、信号、集合を遅らせ、夜の混乱に紛れて脱出を失敗させてください。"
     : `あなたは村側です。${roleText[player.role]}`;
   identityDialog.showModal();
 }
@@ -193,39 +307,105 @@ function showIdentity(playerId) {
 function adjust(path, amount) {
   const [group, key] = path.split(".");
   state[group][key] = Math.max(0, state[group][key] + amount);
-  saveLocal();
-  render();
+  saveAndRender();
 }
 
 function exportState() {
-  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(plainState()))));
   navigator.clipboard?.writeText(payload);
   addLog("盤面コードをコピーしました。");
 }
 
 function importState(value) {
   try {
-    Object.assign(state, JSON.parse(decodeURIComponent(escape(atob(value.trim())))));
+    applyState(JSON.parse(decodeURIComponent(escape(atob(value.trim())))));
     setupPanel.classList.add("hidden");
     gamePanel.classList.remove("hidden");
-    saveLocal();
-    render();
+    saveAndRender(false);
   } catch {
     addLog("盤面コードを読み込めませんでした。");
   }
 }
 
-function saveLocal() {
-  localStorage.setItem("tsukihami-island-state", JSON.stringify(state));
+function plainState() {
+  return {
+    turn: state.turn,
+    phase: state.phase,
+    players: state.players,
+    map: state.map,
+    selectedPlayerId: state.selectedPlayerId,
+    supplies: state.supplies,
+    progress: state.progress,
+    night: state.night,
+    online: state.online,
+    log: state.log,
+  };
+}
+
+function applyState(data) {
+  Object.assign(state, data);
+  state.online = { ...state.online, ...(data.online || {}) };
+}
+
+function saveAndRender(shouldSync = true) {
+  localStorage.setItem("tsukihami-island-state", JSON.stringify(plainState()));
+  render();
+  if (shouldSync) scheduleSync();
+}
+
+async function loadFirebase() {
+  if (firebaseApi) return firebaseApi;
+  const configModule = await import("./firebase-config.js");
+  const appModule = await import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-app.js`);
+  const dbModule = await import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-database.js`);
+  const app = appModule.initializeApp(configModule.firebaseConfig);
+  const db = dbModule.getDatabase(app);
+  firebaseApi = { db, ref: dbModule.ref, set: dbModule.set, onValue: dbModule.onValue };
+  return firebaseApi;
+}
+
+async function connectRoom(roomId, createIfEmpty) {
+  try {
+    const api = await loadFirebase();
+    const cleanRoomId = roomId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 32);
+    if (!cleanRoomId) throw new Error("Room id is required");
+    if (unsubscribeRoom) unsubscribeRoom();
+    roomRef = api.ref(api.db, `rooms/${cleanRoomId}`);
+    state.online = { roomId: cleanRoomId, connected: true, status: "接続中" };
+    if (createIfEmpty) await api.set(roomRef, { state: plainState(), updatedAt: Date.now() });
+    unsubscribeRoom = api.onValue(roomRef, (snapshot) => {
+      const value = snapshot.val();
+      if (!value?.state) return;
+      applyingRemote = true;
+      applyState(value.state);
+      state.online = { roomId: cleanRoomId, connected: true, status: "同期中" };
+      setupPanel.classList.add("hidden");
+      gamePanel.classList.remove("hidden");
+      render();
+      applyingRemote = false;
+    });
+    addLog(`部屋 ${cleanRoomId} に接続した。`);
+  } catch (error) {
+    state.online.status = "未接続: firebase-config.jsを確認";
+    render();
+  }
+}
+
+function scheduleSync() {
+  if (applyingRemote || !state.online.connected || !roomRef || !firebaseApi) return;
+  window.clearTimeout(syncTimer);
+  syncTimer = window.setTimeout(() => {
+    firebaseApi.set(roomRef, { state: plainState(), updatedAt: Date.now() });
+  }, 250);
 }
 
 function renderPhase() {
   const panels = {
-    map: ["島マップ", "選択中の漂流者は1ターンに1マス移動できます。川は橋がないと足止めされます。", renderMap(), `<button class="primary" data-phase-next="action">行動へ</button><button data-action="nextTurn">次ターン</button>`],
-    action: ["パネルアクション", "到着したパネルに応じたアクションを実行します。同じマスにいれば物資交換した扱いにできます。", renderActionList(), `<button data-phase-next="night">夜へ</button>`],
-    night: ["夜の妨害", "月喰みは物資隠し、橋の損傷、道迷い、偽の合図、噂のどれかで妨害します。ここでは数値を手動で反映します。", renderProgressControls(), `<button data-phase-next="vote">投票へ</button>`],
-    vote: ["投票と孤立", "疑惑が高い相手を孤立させられます。誤孤立が増えると村側の運搬力が落ちます。", renderVoteControls(), `<button data-phase-next="map">島へ</button>`],
-    online: ["共有", "現在は無料で使える共有コード方式です。リアルタイム化するなら次にFirebase無料枠を接続します。", `<textarea id="shareCode" class="share-code" placeholder="盤面コードを貼り付け"></textarea>`, `<button class="primary" data-action="export">盤面コードをコピー</button><button data-action="import">読み込む</button>`],
+    map: ["島マップ", "スコットランドヤード寄りの広めの島です。選択中の漂流者は1ターンに1マス移動できます。夜は見える範囲が狭まります。", renderMap(), `<button class="primary" data-phase-next="action">行動へ</button><button data-action="nextTurn">次ターン</button>`],
+    action: ["パネルアクション", "到着したパネルに応じた行動を実行します。物資は試作段階では共有在庫です。", renderActionList(), `<button data-phase-next="night">夜へ</button>`],
+    night: ["夜のアクシデント", "夜は周囲が見えなくなったり、嵐や道迷いが発生します。月喰みはこの混乱に紛れて妨害します。", renderNightControls(), `<button data-phase-next="vote">投票へ</button>`],
+    vote: ["投票と孤立", "疑惑が高い相手を孤立させられます。孤立者は交換と協力に参加できません。", renderVoteControls(), `<button data-phase-next="map">島へ</button>`],
+    online: ["オンライン同期", "Firebase Realtime Database無料枠で部屋同期します。設定ファイルがない場合は共有コードだけ使えます。", renderOnlineControls(), `<button class="primary" data-action="createRoom">部屋を作る</button><button data-action="joinRoom">部屋に参加</button><button data-action="export">盤面コードをコピー</button><button data-action="import">コード読込</button>`],
   };
   const [title, body, content, buttons] = panels[state.phase];
   phasePanel.innerHTML = `<div class="phase-card"><div><h2>${title}</h2><p>${body}</p></div>${content}<div class="actions">${buttons}</div></div>`;
@@ -234,7 +414,7 @@ function renderPhase() {
 function renderMap() {
   let index = 0;
   return `<label class="select-player">動かす人<select id="selectedPlayer">${state.players.map((p) => `<option value="${p.id}" ${p.id === state.selectedPlayerId ? "selected" : ""}>${p.name}</option>`).join("")}</select></label>
-  <div class="map-wrap">${layoutRows.map((length) => {
+  <div class="map-wrap large-map">${layoutRows.map((length) => {
     const tiles = state.map.slice(index, index + length);
     index += length;
     return `<div class="hex-row row-${length}">${tiles.map(renderTile).join("")}</div>`;
@@ -242,20 +422,35 @@ function renderMap() {
 }
 
 function renderTile(tile) {
+  const visible = canSee(tile);
   const info = tileInfo[tile.terrain];
   const occupants = state.players.filter((p) => p.tileId === tile.id);
-  return `<div class="hex ${tile.terrain} ${tile.damaged ? "blocked" : ""}" data-tile="${tile.id}" style="background:${info.color}">
-    <strong>${info.icon}</strong><small>${info.label}</small>${tile.bridge ? "<span class=\"hex-num\">橋</span>" : ""}
+  const label = visible ? info.label : "不明";
+  const icon = visible ? info.icon : "?";
+  return `<div class="hex ${tile.terrain} ${tile.damaged ? "blocked" : ""} ${visible ? "" : "obscured"}" data-tile="${tile.id}" style="background:${visible ? info.color : "#323844"}">
+    <strong>${icon}</strong><small>${label}</small>${tile.bridge && visible ? "<span class=\"hex-num\">橋</span>" : ""}
     <div class="meeples">${occupants.map((p) => `<b style="background:${p.color}">${p.name.slice(0, 1)}</b>`).join("")}</div>
   </div>`;
 }
 
 function renderActionList() {
-  return `<div class="controls">${state.players.map((p) => `<button data-action-player="${p.id}">${p.name}: 今いるマスの行動</button>`).join("")}</div>`;
+  return `<div class="controls">${state.players.map((p) => `<button data-action-player="${p.id}">${p.name}: 今いるマスの行動</button>`).join("")}</div>${renderSupplies()}`;
+}
+
+function renderNightControls() {
+  const bridgeButtons = state.map.filter((tile) => tile.terrain === "river" && tile.bridge).map((tile) => `<button data-damage-bridge="${tile.id}">橋を損傷 ${tile.id}</button>`).join("");
+  return `<div class="controls">
+    <button data-night="fog">濃霧: 周囲1マス</button>
+    <button data-night="darkness">月隠れ: 自分のマスだけ</button>
+    <button data-night="storm">嵐: 視界1 + 危険</button>
+    <button data-night="lost">道迷い</button>
+    <button data-night="none">何もなし</button>
+    ${bridgeButtons || "<button disabled>損傷できる橋なし</button>"}
+  </div><p class="scoreline">${state.night.note || "夜の事故を選んでください。"}</p>${renderProgressControls()}`;
 }
 
 function renderProgressControls() {
-  const items = [["bridges", "橋"], ["repair", "船修理"], ["signal", "救難信号"], ["route", "脱出ルート"], ["danger", "危険"]];
+  const items = [["bridges", "橋"], ["repair", "船修理"], ["signal", "救難信号"], ["route", "航路"], ["danger", "危険"]];
   return `<div class="controls">${items.map(([key, label]) => `<div class="player-card"><div class="player-head"><strong>${label}</strong><span>${state.progress[key]}</span></div><div class="actions"><button data-adjust="progress.${key}:-1">-</button><button data-adjust="progress.${key}:1">+</button></div></div>`).join("")}</div>`;
 }
 
@@ -263,10 +458,23 @@ function renderVoteControls() {
   return `<div class="controls">${state.players.map((p) => `<div class="player-card"><div class="player-head"><strong>${p.name}</strong><span>疑惑${p.suspicion}</span></div><div class="actions"><button data-suspicion="${p.id}">疑惑+1</button><button data-isolate="${p.id}">${p.isolated ? "孤立解除" : "孤立"}</button></div></div>`).join("")}</div>`;
 }
 
+function renderOnlineControls() {
+  return `<label>部屋ID<input id="roomIdInput" value="${state.online.roomId || ""}" placeholder="例: island-test"></label>
+  <p class="scoreline">状態: ${state.online.status}</p>
+  <textarea id="shareCode" class="share-code" placeholder="盤面コードを貼り付け"></textarea>`;
+}
+
+function renderSupplies() {
+  const s = state.supplies;
+  return `<div class="chips"><span class="chip">木材 ${s.wood}</span><span class="chip">石材 ${s.stone}</span><span class="chip">食料 ${s.food}</span><span class="chip">薬草 ${s.herb}</span><span class="chip">部品 ${s.parts}</span><span class="chip">手がかり ${s.clue}</span></div>`;
+}
+
 function renderPlayers() {
   const p = state.progress;
-  playersPanel.innerHTML = `<h2>脱出状況</h2><p class="scoreline">目標: ${state.players.length === 5 ? 9 : 10}ターン以内</p>
-    <div class="chips"><span class="chip">橋 ${p.bridges}/2</span><span class="chip">修理 ${p.repair}/3</span><span class="chip">信号 ${p.signal}/3</span><span class="chip">航路 ${p.route}/2</span><span class="chip danger">危険 ${p.danger}/6</span></div>
+  const t = targets();
+  playersPanel.innerHTML = `<h2>脱出状況</h2><p class="scoreline">目標: ${t.turn}ターン以内</p>
+    <div class="chips"><span class="chip">橋 ${p.bridges}/${t.bridges}</span><span class="chip">修理 ${p.repair}/${t.repair}</span><span class="chip">信号 ${p.signal}/${t.signal}</span><span class="chip">航路 ${p.route}/${t.route}</span><span class="chip danger">危険 ${p.danger}/6</span></div>
+    ${renderSupplies()}
     <h2>漂流者</h2><div class="player-list">${state.players.map((player) => `<article class="player-card" style="--owner:${player.color}"><div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><button data-identity="${player.id}">正体確認</button></div><div class="chips"><span class="chip">${player.role}</span><span class="chip ${player.acted ? "gold" : ""}">${player.acted ? "移動済" : "未移動"}</span><span class="chip ${player.isolated ? "danger" : ""}">${player.isolated ? "孤立" : "協力可"}</span><span class="chip">疑惑${player.suspicion}</span></div></article>`).join("")}</div>${renderLog()}`;
 }
 
@@ -296,20 +504,29 @@ document.addEventListener("click", (event) => {
   }
   if (target.dataset.suspicion) {
     const player = state.players.find((p) => p.id === target.dataset.suspicion);
-    player.suspicion += 1; saveLocal(); render();
+    player.suspicion += 1;
+    saveAndRender();
   }
   if (target.dataset.isolate) {
     const player = state.players.find((p) => p.id === target.dataset.isolate);
-    player.isolated = !player.isolated; saveLocal(); render();
+    player.isolated = !player.isolated;
+    saveAndRender();
   }
+  if (target.dataset.night) triggerNight(target.dataset.night);
+  if (target.dataset.damageBridge) damageBridge(target.dataset.damageBridge);
   if (target.dataset.action === "nextTurn") nextTurn();
   if (target.dataset.action === "export") exportState();
   if (target.dataset.action === "import") importState(document.querySelector("#shareCode").value);
+  if (target.dataset.action === "createRoom") connectRoom(document.querySelector("#roomIdInput").value, true);
+  if (target.dataset.action === "joinRoom") connectRoom(document.querySelector("#roomIdInput").value, false);
 });
 
 document.addEventListener("change", (event) => {
   const target = event.target;
-  if (target instanceof HTMLSelectElement && target.id === "selectedPlayer") state.selectedPlayerId = target.value;
+  if (target instanceof HTMLSelectElement && target.id === "selectedPlayer") {
+    state.selectedPlayerId = target.value;
+    saveAndRender();
+  }
 });
 
 function changePhase(phase) {

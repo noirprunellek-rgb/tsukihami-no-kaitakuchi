@@ -194,7 +194,11 @@ button:hover {
   gap: 0;
   justify-items: center;
   overflow-x: auto;
-  padding: 18px 8px 24px;
+  padding: 18px 8px 26px;
+}
+
+.large-map {
+  justify-items: center;
 }
 
 .hex-row {
@@ -214,8 +218,8 @@ button:hover {
   display: grid;
   place-items: center;
   align-content: center;
-  width: 112px;
-  height: 98px;
+  width: 94px;
+  height: 82px;
   border: 2px solid rgba(31, 38, 44, 0.22);
   background: #ddd;
   clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
@@ -278,12 +282,22 @@ button:hover {
 }
 
 .hex strong {
-  margin-top: 10px;
-  font-size: 1.35rem;
+  margin-top: 6px;
+  font-size: 1.1rem;
 }
 
 .hex small {
+  font-size: 0.76rem;
   font-weight: 800;
+}
+
+.hex.obscured {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.hex.obscured strong,
+.hex.obscured small {
+  color: #b9c2d1;
 }
 
 .hex em {
@@ -475,8 +489,8 @@ dialog::backdrop {
   }
 
   .hex {
-    width: 88px;
-    height: 78px;
+    width: 72px;
+    height: 64px;
   }
 
   .hex-row {
