@@ -3,55 +3,50 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>月喰みの開拓地 Web Prototype</title>
+    <title>月喰みの漂流島 Web Prototype</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Hidden-role settlement prototype</p>
-          <h1>月喰みの開拓地</h1>
+          <p class="eyebrow">Co-op survival hidden-role prototype</p>
+          <h1>月喰みの漂流島</h1>
         </div>
         <div class="round-box">
-          <span>Round</span>
+          <span>Turn</span>
           <strong id="roundLabel">1</strong>
         </div>
       </header>
 
       <section class="setup" id="setupPanel">
         <div class="section-title">
-          <h2>卓を作る</h2>
-          <p>4-5人で遊ぶ同一画面用の進行補助です。マップ、正体、役職、弱体化を管理できます。</p>
+          <h2>漂流者を登録</h2>
+          <p>全員が同じ海岸から始め、島を探索して脱出を目指します。1人だけ月喰みが紛れています。</p>
         </div>
         <div class="setup-grid">
-          <label>
-            人数
+          <label>人数
             <select id="playerCount">
               <option value="4">4人</option>
               <option value="5">5人</option>
             </select>
           </label>
-          <label>
-            乱数シード
-            <input id="seedInput" type="text" value="moon-1" />
+          <label>乱数シード
+            <input id="seedInput" type="text" value="island-1" />
           </label>
         </div>
         <div class="names" id="nameFields"></div>
-        <button class="primary" id="startGame">ゲーム開始</button>
+        <button class="primary" id="startGame">漂着する</button>
       </section>
 
       <section class="board hidden" id="gamePanel">
         <nav class="phase-tabs" aria-label="フェイズ">
-          <button class="active" data-phase="map">マップ</button>
-          <button data-phase="morning">朝</button>
-          <button data-phase="day">昼</button>
-          <button data-phase="vote">投票</button>
+          <button class="active" data-phase="map">島</button>
+          <button data-phase="action">行動</button>
           <button data-phase="night">夜</button>
+          <button data-phase="vote">投票</button>
           <button data-phase="online">共有</button>
-          <button data-phase="status">状況</button>
         </nav>
-
         <section class="phase" id="phasePanel"></section>
         <aside class="players" id="playersPanel"></aside>
       </section>

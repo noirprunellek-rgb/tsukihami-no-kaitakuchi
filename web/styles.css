@@ -302,6 +302,28 @@ button:hover {
   white-space: nowrap;
 }
 
+.meeples {
+  position: absolute;
+  bottom: 8px;
+  display: flex;
+  max-width: 86px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+
+.meeples b {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
 .select-player {
   max-width: 240px;
 }
