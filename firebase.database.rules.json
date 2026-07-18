@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['state', 'updatedAt']) || !newData.exists()"
+      }
+    }
+  }
+}

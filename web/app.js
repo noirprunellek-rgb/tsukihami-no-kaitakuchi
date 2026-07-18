@@ -355,13 +355,41 @@ function saveAndRender(shouldSync = true) {
 
 async function loadFirebase() {
   if (firebaseApi) return firebaseApi;
-  const configModule = await import("./firebase-config.js");
+  const configModule = await loadFirebaseConfig();
   const appModule = await import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-app.js`);
   const dbModule = await import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-database.js`);
-  const app = appModule.initializeApp(configModule.firebaseConfig);
+  const app = appModule.initializeApp(configModule);
   const db = dbModule.getDatabase(app);
   firebaseApi = { db, ref: dbModule.ref, set: dbModule.set, onValue: dbModule.onValue };
   return firebaseApi;
+}
+
+async function loadFirebaseConfig() {
+  const saved = localStorage.getItem("tsukihami-firebase-config");
+  if (saved) return JSON.parse(saved);
+  try {
+    const module = await import("./firebase-config.js");
+    return module.firebaseConfig;
+  } catch {
+    throw new Error("Firebase config is missing");
+  }
+}
+
+function saveFirebaseConfig(value) {
+  try {
+    const trimmed = value.trim();
+    const objectText = trimmed
+      .replace(/^(export\s+)?const\s+firebaseConfig\s*=\s*/, "")
+      .replace(/;\s*$/, "");
+    const config = Function(`"use strict"; return (${objectText});`)();
+    if (!config.apiKey || !config.databaseURL || !config.projectId) throw new Error("Invalid config");
+    localStorage.setItem("tsukihami-firebase-config", JSON.stringify(config));
+    state.online.status = "Firebase設定を保存済み";
+    addLog("Firebase設定を保存しました。部屋を作れるようになりました。");
+  } catch {
+    state.online.status = "Firebase設定を読み取れませんでした";
+    render();
+  }
 }
 
 async function connectRoom(roomId, createIfEmpty) {
@@ -386,7 +414,7 @@ async function connectRoom(roomId, createIfEmpty) {
     });
     addLog(`部屋 ${cleanRoomId} に接続した。`);
   } catch (error) {
-    state.online.status = "未接続: firebase-config.jsを確認";
+    state.online.status = "未接続: Firebase設定またはDBルールを確認";
     render();
   }
 }
@@ -405,7 +433,7 @@ function renderPhase() {
     action: ["パネルアクション", "到着したパネルに応じた行動を実行します。物資は試作段階では共有在庫です。", renderActionList(), `<button data-phase-next="night">夜へ</button>`],
     night: ["夜のアクシデント", "夜は周囲が見えなくなったり、嵐や道迷いが発生します。月喰みはこの混乱に紛れて妨害します。", renderNightControls(), `<button data-phase-next="vote">投票へ</button>`],
     vote: ["投票と孤立", "疑惑が高い相手を孤立させられます。孤立者は交換と協力に参加できません。", renderVoteControls(), `<button data-phase-next="map">島へ</button>`],
-    online: ["オンライン同期", "Firebase Realtime Database無料枠で部屋同期します。設定ファイルがない場合は共有コードだけ使えます。", renderOnlineControls(), `<button class="primary" data-action="createRoom">部屋を作る</button><button data-action="joinRoom">部屋に参加</button><button data-action="export">盤面コードをコピー</button><button data-action="import">コード読込</button>`],
+    online: ["オンライン同期", "Firebase Realtime Database無料枠で部屋同期します。設定ファイルがない場合は、この画面にFirebase設定を貼り付けて保存できます。", renderOnlineControls(), `<button data-action="saveFirebase">Firebase設定を保存</button><button class="primary" data-action="createRoom">部屋を作る</button><button data-action="joinRoom">部屋に参加</button><button data-action="export">盤面コードをコピー</button><button data-action="import">コード読込</button>`],
   };
   const [title, body, content, buttons] = panels[state.phase];
   phasePanel.innerHTML = `<div class="phase-card"><div><h2>${title}</h2><p>${body}</p></div>${content}<div class="actions">${buttons}</div></div>`;
@@ -461,6 +489,7 @@ function renderVoteControls() {
 function renderOnlineControls() {
   return `<label>部屋ID<input id="roomIdInput" value="${state.online.roomId || ""}" placeholder="例: island-test"></label>
   <p class="scoreline">状態: ${state.online.status}</p>
+  <textarea id="firebaseConfigInput" class="share-code" placeholder="Firebase Consoleの firebaseConfig を貼り付け"></textarea>
   <textarea id="shareCode" class="share-code" placeholder="盤面コードを貼り付け"></textarea>`;
 }
 
@@ -517,6 +546,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "nextTurn") nextTurn();
   if (target.dataset.action === "export") exportState();
   if (target.dataset.action === "import") importState(document.querySelector("#shareCode").value);
+  if (target.dataset.action === "saveFirebase") saveFirebaseConfig(document.querySelector("#firebaseConfigInput").value);
   if (target.dataset.action === "createRoom") connectRoom(document.querySelector("#roomIdInput").value, true);
   if (target.dataset.action === "joinRoom") connectRoom(document.querySelector("#roomIdInput").value, false);
 });

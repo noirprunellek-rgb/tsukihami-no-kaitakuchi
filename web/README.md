@@ -30,6 +30,8 @@
 4. FirebaseのWeb設定値を貼り付ける
 5. Realtime Database Rulesをテスト用に設定する
 
+公開済みのGitHub Pagesだけで試す場合は、Web版の共有タブに `firebaseConfig` を貼り付けて保存できます。
+
 テスト用ルール:
 
 ```json

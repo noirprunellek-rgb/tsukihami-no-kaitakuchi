@@ -32,4 +32,5 @@ GitHub Pagesで公開しています。
 - [初回プロトタイプルール](docs/prototype-rules.md)
 - [コンポーネント一覧](docs/components.md)
 - [デザインノート](docs/design-notes.md)
+- [Firebase無料枠セットアップ](docs/firebase-setup.md)
 - [Webプロトタイプ](web/README.md)
