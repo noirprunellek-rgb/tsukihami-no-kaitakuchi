@@ -157,7 +157,7 @@ button:hover {
 
 .board {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
 }
 
@@ -187,6 +187,123 @@ button:hover {
 .phase-card {
   display: grid;
   gap: 16px;
+}
+
+.map-wrap {
+  display: grid;
+  gap: 0;
+  justify-items: center;
+  overflow-x: auto;
+  padding: 18px 8px 24px;
+}
+
+.hex-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: -16px;
+  min-width: max-content;
+}
+
+.hex-row:first-child {
+  margin-top: 0;
+}
+
+.hex {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 112px;
+  height: 98px;
+  border: 2px solid rgba(31, 38, 44, 0.22);
+  background: #ddd;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  color: #fff;
+  cursor: pointer;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+}
+
+.hex:hover {
+  filter: brightness(1.06);
+}
+
+.hex.forest {
+  background: #2f7d5a;
+}
+
+.hex.hill {
+  background: #b55a3c;
+}
+
+.hex.field {
+  background: #d0a13d;
+}
+
+.hex.pasture {
+  background: #6f9e5f;
+}
+
+.hex.mountain {
+  background: #737985;
+}
+
+.hex.desert {
+  background: #b99a69;
+}
+
+.hex.blocked::after {
+  content: "封鎖";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(38, 50, 74, 0.72);
+  color: #fff;
+  font-weight: 900;
+}
+
+.hex-num {
+  position: absolute;
+  top: 9px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.88);
+  color: #1f252d;
+  text-shadow: none;
+  font-weight: 900;
+}
+
+.hex strong {
+  margin-top: 10px;
+  font-size: 1.35rem;
+}
+
+.hex small {
+  font-weight: 800;
+}
+
+.hex em {
+  position: absolute;
+  bottom: 8px;
+  max-width: 82px;
+  border-radius: 999px;
+  background: var(--owner);
+  padding: 2px 7px;
+  color: #fff;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-player {
+  max-width: 240px;
 }
 
 .actions {
@@ -281,6 +398,32 @@ button:hover {
   color: var(--muted);
 }
 
+.scoreline {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--owner);
+  vertical-align: -1px;
+}
+
+.share-code {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  font: 0.9rem ui-monospace, "Cascadia Code", monospace;
+}
+
 .hidden {
   display: none;
 }
@@ -307,5 +450,27 @@ dialog::backdrop {
 
   .board {
     grid-template-columns: 1fr;
+  }
+
+  .hex {
+    width: 88px;
+    height: 78px;
+  }
+
+  .hex-row {
+    gap: 5px;
+    margin-top: -12px;
+  }
+
+  .hex strong {
+    font-size: 1.05rem;
+  }
+
+  .hex small {
+    font-size: 0.72rem;
+  }
+
+  .hex em {
+    max-width: 66px;
   }
 }

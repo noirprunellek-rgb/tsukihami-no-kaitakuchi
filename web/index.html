@@ -22,7 +22,7 @@
       <section class="setup" id="setupPanel">
         <div class="section-title">
           <h2>卓を作る</h2>
-          <p>4-5人で遊ぶ同一画面用の進行補助です。正体確認は端末を回して使います。</p>
+          <p>4-5人で遊ぶ同一画面用の進行補助です。マップ、正体、役職、弱体化を管理できます。</p>
         </div>
         <div class="setup-grid">
           <label>
@@ -43,15 +43,16 @@
 
       <section class="board hidden" id="gamePanel">
         <nav class="phase-tabs" aria-label="フェイズ">
-          <button class="active" data-phase="morning">朝</button>
+          <button class="active" data-phase="map">マップ</button>
+          <button data-phase="morning">朝</button>
           <button data-phase="day">昼</button>
           <button data-phase="vote">投票</button>
           <button data-phase="night">夜</button>
+          <button data-phase="online">共有</button>
           <button data-phase="status">状況</button>
         </nav>
 
         <section class="phase" id="phasePanel"></section>
-
         <aside class="players" id="playersPanel"></aside>
       </section>
     </main>
