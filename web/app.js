@@ -229,14 +229,12 @@ function moveSelected(tileId) {
     player.acted = true;
     to.explored = true;
     addLog(`${player.name}は川で足止めされた。橋がないと渡り切れない。`);
-    if (isSoloHuman(player)) changePhase("action");
     return;
   }
   player.tileId = to.id;
   player.acted = true;
   to.explored = true;
   addLog(`${player.name}は${tileInfo[to.terrain].label}へ移動した。`);
-  if (isSoloHuman(player)) changePhase("action");
 }
 
 function doTileAction(playerId) {
@@ -529,15 +527,34 @@ function scheduleSync() {
 }
 
 function renderPhase() {
-  const panels = {
-    map: ["島マップ", "スコットランドヤード寄りの広めの島です。選択中の漂流者は1ターンに1マス移動できます。夜は見える範囲が狭まります。", renderMap(), `<button class="primary" data-phase-next="action">行動へ</button><button data-action="nextTurn">次ターン</button>`],
-    action: ["パネルアクション", "到着したパネルに応じた行動を実行します。物資は試作段階では共有在庫です。", renderActionList(), `<button data-phase-next="night">夜へ</button>`],
-    night: ["夜のアクシデント", "夜は周囲が見えなくなったり、嵐や道迷いが発生します。月喰みはこの混乱に紛れて妨害します。", renderNightControls(), `<button data-phase-next="vote">投票へ</button>`],
-    vote: ["投票と孤立", "疑惑が高い相手を孤立させられます。孤立者は交換と協力に参加できません。", renderVoteControls(), `<button data-phase-next="map">島へ</button>`],
-    online: ["オンライン同期", "Firebase Realtime Database無料枠で部屋同期します。設定ファイルがない場合は、この画面にFirebase設定を貼り付けて保存できます。", renderOnlineControls(), `<button data-action="saveFirebase">Firebase設定を保存</button><button class="primary" data-action="createRoom">部屋を作る</button><button data-action="joinRoom">部屋に参加</button><button data-action="export">盤面コードをコピー</button><button data-action="import">コード読込</button>`],
-  };
-  const [title, body, content, buttons] = panels[state.phase];
-  phasePanel.innerHTML = `<div class="phase-card"><div><h2>${title}</h2><p>${body}</p></div>${content}<div class="actions">${buttons}</div></div>`;
+  phasePanel.innerHTML = `<div class="dashboard">
+    <section class="tool-panel map-panel">
+      <div class="panel-head">
+        <div><h2>島マップ</h2><p>選択中の漂流者を1マス移動し、着いた場所の行動を実行します。</p></div>
+        <button data-action="nextTurn">次ターン</button>
+      </div>
+      ${renderMap()}
+    </section>
+    <section class="tool-panel">
+      <div class="panel-head"><div><h2>パネルアクション</h2><p>今いるマスの効果を実行します。ソロではP1の行動後にBotが自動で動きます。</p></div></div>
+      ${renderActionList()}
+    </section>
+    <section class="tool-panel">
+      <div class="panel-head"><div><h2>夜のアクシデント</h2><p>視界不良や嵐をすぐ適用できます。</p></div></div>
+      ${renderNightControls()}
+    </section>
+    <section class="tool-panel">
+      <div class="panel-head"><div><h2>投票と孤立</h2><p>疑惑と孤立を管理します。</p></div></div>
+      ${renderVoteControls()}
+    </section>
+    <section class="tool-panel">
+      <div class="panel-head">
+        <div><h2>オンライン同期</h2><p>Firebaseの部屋同期と盤面コード共有。</p></div>
+        <div class="actions"><button data-action="saveFirebase">Firebase設定を保存</button><button class="primary" data-action="createRoom">部屋を作る</button><button data-action="joinRoom">部屋に参加</button><button data-action="export">盤面コードをコピー</button><button data-action="import">コード読込</button></div>
+      </div>
+      ${renderOnlineControls()}
+    </section>
+  </div>`;
 }
 
 function renderMap() {
@@ -616,7 +633,6 @@ function renderLog() {
 
 function render() {
   roundLabel.textContent = state.turn;
-  document.querySelectorAll("[data-phase]").forEach((button) => button.classList.toggle("active", button.dataset.phase === state.phase));
   renderPhase();
   renderPlayers();
 }
@@ -625,8 +641,6 @@ document.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const tile = target.closest("[data-tile]");
-  if (target.dataset.phase) changePhase(target.dataset.phase);
-  if (target.dataset.phaseNext) changePhase(target.dataset.phaseNext);
   if (tile instanceof HTMLElement) moveSelected(tile.dataset.tile);
   if (target.dataset.identity) showIdentity(target.dataset.identity);
   if (target.dataset.actionPlayer) doTileAction(target.dataset.actionPlayer);
@@ -661,11 +675,6 @@ document.addEventListener("change", (event) => {
     saveAndRender();
   }
 });
-
-function changePhase(phase) {
-  state.phase = phase;
-  render();
-}
 
 document.querySelector("#startGame").addEventListener("click", startGame);
 document.querySelector("#closeIdentity").addEventListener("click", () => identityDialog.close());
