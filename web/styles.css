@@ -123,6 +123,17 @@ label {
   font-weight: 700;
 }
 
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.check-row input {
+  width: auto;
+  min-height: auto;
+}
+
 input,
 select {
   width: 100%;

@@ -52,6 +52,7 @@ const state = {
   supplies: { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 },
   progress: { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 },
   night: { event: "none", visibleRange: 99, note: "" },
+  solo: { enabled: false, humanPlayerId: "" },
   online: { roomId: "", connected: false, status: "未接続" },
   log: [],
 };
@@ -64,6 +65,7 @@ let syncTimer = null;
 
 const playerCount = document.querySelector("#playerCount");
 const seedInput = document.querySelector("#seedInput");
+const soloMode = document.querySelector("#soloMode");
 const nameFields = document.querySelector("#nameFields");
 const setupPanel = document.querySelector("#setupPanel");
 const gamePanel = document.querySelector("#gamePanel");
@@ -131,6 +133,7 @@ function renderNameFields() {
 
 function startGame() {
   const count = Number(playerCount.value);
+  const soloEnabled = Boolean(soloMode?.checked);
   const random = seededRandom(`${seedInput.value}-${Date.now()}`);
   const identities = shuffle(["月喰み", ...Array(count - 1).fill("村側")], random);
   const roles = shuffle(rolesByCount[count], random);
@@ -148,6 +151,7 @@ function startGame() {
     suspicion: 0,
     isolated: false,
     acted: false,
+    bot: soloEnabled && i > 0,
   }));
   Object.assign(state, {
     turn: 1,
@@ -156,6 +160,7 @@ function startGame() {
     supplies: { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 },
     progress: { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 },
     night: { event: "none", visibleRange: 99, note: "" },
+    solo: { enabled: soloEnabled, humanPlayerId: state.players[0].id },
     log: ["全員が漂着海岸に流れ着いた。広い島を探索し、目標ターンまでに脱出しよう。"],
   });
   setupPanel.classList.add("hidden");
@@ -167,6 +172,19 @@ function addLog(text) {
   state.log.unshift(`T${state.turn}: ${text}`);
   state.log = state.log.slice(0, 60);
   saveAndRender();
+}
+
+function pushLog(text) {
+  state.log.unshift(`T${state.turn}: ${text}`);
+  state.log = state.log.slice(0, 60);
+}
+
+function humanPlayer() {
+  return state.players.find((player) => player.id === state.solo?.humanPlayerId) || state.players[0];
+}
+
+function isSoloHuman(player) {
+  return Boolean(state.solo?.enabled && player?.id === state.solo.humanPlayerId);
 }
 
 function findTile(id) {
@@ -201,6 +219,7 @@ function canSee(tile) {
 function moveSelected(tileId) {
   const player = state.players.find((p) => p.id === state.selectedPlayerId);
   if (!player || player.acted || player.isolated) return;
+  if (state.solo?.enabled && !isSoloHuman(player)) return;
   const from = findTile(player.tileId);
   const to = findTile(tileId);
   if (!from || !to) return;
@@ -210,17 +229,20 @@ function moveSelected(tileId) {
     player.acted = true;
     to.explored = true;
     addLog(`${player.name}は川で足止めされた。橋がないと渡り切れない。`);
+    if (isSoloHuman(player)) changePhase("action");
     return;
   }
   player.tileId = to.id;
   player.acted = true;
   to.explored = true;
   addLog(`${player.name}は${tileInfo[to.terrain].label}へ移動した。`);
+  if (isSoloHuman(player)) changePhase("action");
 }
 
 function doTileAction(playerId) {
   const player = state.players.find((p) => p.id === playerId);
   if (!player || player.isolated) return;
+  if (state.solo?.enabled && !isSoloHuman(player) && !player.bot) return;
   const tile = findTile(player.tileId);
   if (!tile) return;
   const beforeDanger = state.progress.danger;
@@ -259,7 +281,80 @@ function doTileAction(playerId) {
     state.progress.repair = Math.min(targets().repair, state.progress.repair + 1);
   }
   const dangerNote = state.progress.danger > beforeDanger ? " 危険が増えた。" : "";
-  addLog(`${player.name}が${tileInfo[tile.terrain].label}の行動を実行した。${dangerNote}`);
+  if (isSoloHuman(player)) player.acted = true;
+  if (player.bot) {
+    pushLog(`${player.name} Bot: ${tileInfo[tile.terrain].label}の行動を実行した。${dangerNote}`);
+    return;
+  }
+  pushLog(`${player.name}が${tileInfo[tile.terrain].label}の行動を実行した。${dangerNote}`);
+  if (isSoloHuman(player)) {
+    runBotTurns();
+    return;
+  }
+  saveAndRender();
+}
+
+function botTileScore(player, tile) {
+  const s = state.supplies;
+  const p = state.progress;
+  const t = targets();
+  let score = tile.id === player.tileId ? 0.1 : 1;
+  if (tile.terrain === "wreck") score += p.repair < t.repair && s.wood >= 1 && s.parts >= 1 ? 9 : 1;
+  if (tile.terrain === "river") score += p.bridges < t.bridges && s.wood >= 2 && s.stone >= 1 ? 8 : -1;
+  if (tile.terrain === "hill") score += p.signal < t.signal ? 6 : 0;
+  if (tile.terrain === "ruin") score += p.route < t.route ? 5 : 0;
+  if (tile.terrain === "forest") score += s.wood < 4 ? 4 : 1;
+  if (tile.terrain === "rock") score += s.stone < 3 ? 3 : 1;
+  if (tile.terrain === "cave") score += s.parts < 3 ? 3 : 0;
+  if (tile.terrain === "jungle") score += s.food < state.players.length ? 2 : 0;
+  if (tile.terrain === "swamp") score += s.herb < 2 ? 2 : 0;
+  if (tile.terrain === "marsh") score -= p.danger >= 4 ? 5 : 1;
+  if (tile.terrain === "river" && !tile.bridge && s.wood < 2) score -= 2;
+  if (tile.terrain === "cliff") score += state.night.visibleRange < 99 ? 2 : 0;
+  return score + Math.random() * 0.75;
+}
+
+function chooseBotTile(player) {
+  const current = findTile(player.tileId);
+  if (!current) return null;
+  return [current, ...neighbors(current)]
+    .sort((a, b) => botTileScore(player, b) - botTileScore(player, a))[0];
+}
+
+function autoBotTurn(player) {
+  if (!player || player.acted) return;
+  if (player.isolated) {
+    player.acted = true;
+    pushLog(`${player.name} Bot: 孤立中のため待機した。`);
+    return;
+  }
+  const tile = chooseBotTile(player);
+  if (!tile) return;
+  player.tileId = tile.id;
+  player.acted = true;
+  tile.explored = true;
+  pushLog(`${player.name} Bot: ${tileInfo[tile.terrain].label}へ移動した。`);
+  doTileAction(player.id);
+}
+
+function runBotTurns() {
+  if (!state.solo?.enabled) {
+    saveAndRender();
+    return;
+  }
+  state.players.filter((player) => player.bot && !player.acted).forEach(autoBotTurn);
+  if (state.players.every((player) => player.acted)) {
+    state.turn += 1;
+    state.players.forEach((player) => { player.acted = false; });
+    state.night = { event: "none", visibleRange: 99, note: "" };
+    state.phase = "map";
+    state.selectedPlayerId = humanPlayer().id;
+    pushLog("Botの行動が完了。次のターンへ。");
+  } else {
+    state.phase = "map";
+    state.selectedPlayerId = humanPlayer().id;
+  }
+  saveAndRender();
 }
 
 function targets() {
@@ -271,6 +366,7 @@ function nextTurn() {
   state.players.forEach((p) => { p.acted = false; });
   state.night = { event: "none", visibleRange: 99, note: "" };
   state.phase = "map";
+  if (state.solo?.enabled) state.selectedPlayerId = humanPlayer().id;
   addLog("次のターンへ。夜の視界不良は解除された。");
 }
 
@@ -337,6 +433,7 @@ function plainState() {
     supplies: state.supplies,
     progress: state.progress,
     night: state.night,
+    solo: state.solo,
     online: state.online,
     log: state.log,
   };
@@ -344,6 +441,10 @@ function plainState() {
 
 function applyState(data) {
   Object.assign(state, data);
+  state.solo = { enabled: false, humanPlayerId: "", ...(data.solo || {}) };
+  state.players.forEach((player, index) => {
+    if (player.bot === undefined) player.bot = state.solo.enabled && index > 0;
+  });
   state.online = { ...state.online, ...(data.online || {}) };
 }
 
@@ -441,7 +542,8 @@ function renderPhase() {
 
 function renderMap() {
   let index = 0;
-  return `<label class="select-player">動かす人<select id="selectedPlayer">${state.players.map((p) => `<option value="${p.id}" ${p.id === state.selectedPlayerId ? "selected" : ""}>${p.name}</option>`).join("")}</select></label>
+  const selectablePlayers = state.solo?.enabled ? [humanPlayer()] : state.players;
+  return `<label class="select-player">動かす人<select id="selectedPlayer">${selectablePlayers.map((p) => `<option value="${p.id}" ${p.id === state.selectedPlayerId ? "selected" : ""}>${p.name}${p.bot ? " Bot" : ""}</option>`).join("")}</select></label>
   <div class="map-wrap large-map">${layoutRows.map((length) => {
     const tiles = state.map.slice(index, index + length);
     index += length;
@@ -462,7 +564,8 @@ function renderTile(tile) {
 }
 
 function renderActionList() {
-  return `<div class="controls">${state.players.map((p) => `<button data-action-player="${p.id}">${p.name}: 今いるマスの行動</button>`).join("")}</div>${renderSupplies()}`;
+  const actionPlayers = state.solo?.enabled ? [humanPlayer()] : state.players;
+  return `<div class="controls">${actionPlayers.map((p) => `<button data-action-player="${p.id}">${p.name}: 今いるマスの行動</button>`).join("")}</div>${renderSupplies()}`;
 }
 
 function renderNightControls() {
@@ -504,7 +607,7 @@ function renderPlayers() {
   playersPanel.innerHTML = `<h2>脱出状況</h2><p class="scoreline">目標: ${t.turn}ターン以内</p>
     <div class="chips"><span class="chip">橋 ${p.bridges}/${t.bridges}</span><span class="chip">修理 ${p.repair}/${t.repair}</span><span class="chip">信号 ${p.signal}/${t.signal}</span><span class="chip">航路 ${p.route}/${t.route}</span><span class="chip danger">危険 ${p.danger}/6</span></div>
     ${renderSupplies()}
-    <h2>漂流者</h2><div class="player-list">${state.players.map((player) => `<article class="player-card" style="--owner:${player.color}"><div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><button data-identity="${player.id}">正体確認</button></div><div class="chips"><span class="chip">${player.role}</span><span class="chip ${player.acted ? "gold" : ""}">${player.acted ? "移動済" : "未移動"}</span><span class="chip ${player.isolated ? "danger" : ""}">${player.isolated ? "孤立" : "協力可"}</span><span class="chip">疑惑${player.suspicion}</span></div></article>`).join("")}</div>${renderLog()}`;
+    <h2>漂流者</h2><div class="player-list">${state.players.map((player) => `<article class="player-card" style="--owner:${player.color}"><div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><button data-identity="${player.id}">正体確認</button></div><div class="chips"><span class="chip">${player.role}</span><span class="chip ${player.bot ? "" : "gold"}">${player.bot ? "Bot" : "あなた"}</span><span class="chip ${player.acted ? "gold" : ""}">${player.acted ? "移動済" : "未移動"}</span><span class="chip ${player.isolated ? "danger" : ""}">${player.isolated ? "孤立" : "協力可"}</span><span class="chip">疑惑${player.suspicion}</span></div></article>`).join("")}</div>${renderLog()}`;
 }
 
 function renderLog() {
