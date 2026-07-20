@@ -5,14 +5,6 @@ const rolesByCount = {
   5: ["航海士", "医師", "大工", "探索者", "記録係"],
 };
 
-const roleText = {
-  航海士: "手がかりを使って脱出ルートを進めます。",
-  医師: "同じマスの仲間の負傷や孤立を軽減します。",
-  大工: "橋や船修理の木材コストを1減らします。",
-  探索者: "未踏パネルを見てから移動できます。",
-  記録係: "投票前に、誰か1人の直前の行動を公開確認できます。",
-};
-
 const tileInfo = {
   beach: { label: "海岸", action: "交換", icon: "浜", color: "#4b8ca8" },
   forest: { label: "森", action: "木材", icon: "木", color: "#2f7d5a" },
@@ -72,7 +64,6 @@ const gamePanel = document.querySelector("#gamePanel");
 const phasePanel = document.querySelector("#phasePanel");
 const playersPanel = document.querySelector("#playersPanel");
 const roundLabel = document.querySelector("#roundLabel");
-const identityDialog = document.querySelector("#identityDialog");
 
 function seededRandom(seed) {
   let value = 0;
@@ -135,7 +126,6 @@ function startGame() {
   const count = Number(playerCount.value);
   const soloEnabled = Boolean(soloMode?.checked);
   const random = seededRandom(`${seedInput.value}-${Date.now()}`);
-  const identities = shuffle(["月喰み", ...Array(count - 1).fill("村側")], random);
   const roles = shuffle(rolesByCount[count], random);
   const names = [...document.querySelectorAll("[data-name-input]")].map((input, i) => input.value.trim() || `P${i + 1}`);
 
@@ -145,11 +135,8 @@ function startGame() {
     id: crypto.randomUUID(),
     name,
     color: ["#2f7d5a", "#b84f43", "#2e68a6", "#7b5bbb", "#c28a21"][i],
-    identity: identities[i],
     role: roles[i],
     tileId: startTile,
-    suspicion: 0,
-    isolated: false,
     acted: false,
     bot: soloEnabled && i > 0,
   }));
@@ -218,7 +205,7 @@ function canSee(tile) {
 
 function moveSelected(tileId) {
   const player = state.players.find((p) => p.id === state.selectedPlayerId);
-  if (!player || player.acted || player.isolated) return;
+  if (!player || player.acted) return;
   if (state.solo?.enabled && !isSoloHuman(player)) return;
   const from = findTile(player.tileId);
   const to = findTile(tileId);
@@ -239,7 +226,7 @@ function moveSelected(tileId) {
 
 function doTileAction(playerId) {
   const player = state.players.find((p) => p.id === playerId);
-  if (!player || player.isolated) return;
+  if (!player) return;
   if (state.solo?.enabled && !isSoloHuman(player) && !player.bot) return;
   const tile = findTile(player.tileId);
   if (!tile) return;
@@ -321,11 +308,6 @@ function chooseBotTile(player) {
 
 function autoBotTurn(player) {
   if (!player || player.acted) return;
-  if (player.isolated) {
-    player.acted = true;
-    pushLog(`${player.name} Bot: 孤立中のため待機した。`);
-    return;
-  }
   const tile = chooseBotTile(player);
   if (!tile) return;
   player.tileId = tile.id;
@@ -344,10 +326,10 @@ function runBotTurns() {
   if (state.players.every((player) => player.acted)) {
     state.turn += 1;
     state.players.forEach((player) => { player.acted = false; });
-    state.night = { event: "none", visibleRange: 99, note: "" };
+    applyRandomNight();
     state.phase = "map";
     state.selectedPlayerId = humanPlayer().id;
-    pushLog("Botの行動が完了。次のターンへ。");
+    pushLog("Botの行動が完了。夜のアクシデントを処理して次のターンへ。");
   } else {
     state.phase = "map";
     state.selectedPlayerId = humanPlayer().id;
@@ -362,40 +344,55 @@ function targets() {
 function nextTurn() {
   state.turn += 1;
   state.players.forEach((p) => { p.acted = false; });
-  state.night = { event: "none", visibleRange: 99, note: "" };
+  applyRandomNight();
   state.phase = "map";
   if (state.solo?.enabled) state.selectedPlayerId = humanPlayer().id;
-  addLog("次のターンへ。夜の視界不良は解除された。");
+  addLog("夜のアクシデントを処理して次のターンへ。");
+}
+
+function nightEvents() {
+  return {
+    fog: { event: "fog", visibleRange: 1, note: "濃霧。各自の周囲1マスしか見えない。" },
+    darkness: { event: "darkness", visibleRange: 0, note: "月隠れ。自分がいるマスしか見えない。" },
+    storm: { event: "storm", visibleRange: 1, note: "嵐。視界1、危険+1。" },
+    lost: { event: "lost", visibleRange: 1, note: "道迷い。選択中の漂流者を隣接マスへずらす。" },
+    calm: { event: "calm", visibleRange: 99, note: "静かな夜。何も起きなかった。" },
+  };
+}
+
+function applyNight(eventType) {
+  const events = nightEvents();
+  state.night = events[eventType] || events.calm;
+  if (eventType === "storm") state.progress.danger += 1;
+  if (eventType === "lost") {
+    const player = state.players.find((p) => p.id === state.selectedPlayerId) || state.players[0];
+    const current = findTile(player?.tileId);
+    const options = current ? neighbors(current) : [];
+    const target = options[Math.floor(Math.random() * options.length)];
+    if (player && target) {
+      player.tileId = target.id;
+      target.explored = true;
+      state.night.note += ` ${player.name}が流されて${tileInfo[target.terrain].label}へ移動した。`;
+    }
+  }
+}
+
+function applyRandomNight() {
+  const deck = ["calm", "fog", "fog", "darkness", "storm", "lost"];
+  applyNight(deck[Math.floor(Math.random() * deck.length)]);
+  pushLog(`夜: ${state.night.note}`);
 }
 
 function triggerNight(eventType) {
-  const events = {
-    fog: { event: "fog", visibleRange: 1, note: "濃霧。各自の周囲1マスしか見えない。" },
-    darkness: { event: "darkness", visibleRange: 0, note: "月隠れ。自分のいるマスしか見えない。" },
-    storm: { event: "storm", visibleRange: 1, note: "嵐。視界1、危険+1。" },
-    lost: { event: "lost", visibleRange: 1, note: "道迷い。選択中の漂流者を隣接マスへずらす。" },
-    none: { event: "none", visibleRange: 99, note: "何も起きなかった。" },
-  };
-  state.night = events[eventType] || events.none;
-  if (eventType === "storm") state.progress.danger += 1;
-  addLog(`夜のアクシデント: ${state.night.note}`);
+  applyNight(eventType);
+  addLog(`夜: ${state.night.note}`);
 }
 
 function damageBridge(tileId) {
   const tile = findTile(tileId);
   if (!tile || tile.terrain !== "river" || !tile.bridge) return;
   tile.damaged = true;
-  addLog("月喰みが橋を損傷させた。");
-}
-
-function showIdentity(playerId) {
-  const player = state.players.find((p) => p.id === playerId);
-  document.querySelector("#identityOwner").textContent = player.name;
-  document.querySelector("#identityTitle").textContent = `${player.identity} / ${player.role}`;
-  document.querySelector("#identityText").textContent = player.identity === "月喰み"
-    ? "あなたは月喰みです。橋、修理、信号、集合を遅らせ、夜の混乱に紛れて脱出を失敗させてください。"
-    : `あなたは村側です。${roleText[player.role]}`;
-  identityDialog.showModal();
+  addLog("夜の嵐で橋が損傷した。");
 }
 
 function adjust(path, amount) {
@@ -540,12 +537,8 @@ function renderPhase() {
       ${renderActionList()}
     </section>
     <section class="tool-panel">
-      <div class="panel-head"><div><h2>夜のアクシデント</h2><p>視界不良や嵐をすぐ適用できます。</p></div></div>
+      <div class="panel-head"><div><h2>夜のアクシデント</h2><p>次ターン開始時にランダム発生します。下のボタンはテスト用です。</p></div></div>
       ${renderNightControls()}
-    </section>
-    <section class="tool-panel">
-      <div class="panel-head"><div><h2>投票と孤立</h2><p>疑惑と孤立を管理します。</p></div></div>
-      ${renderVoteControls()}
     </section>
     <section class="tool-panel">
       <div class="panel-head">
@@ -602,10 +595,6 @@ function renderProgressControls() {
   return `<div class="controls">${items.map(([key, label]) => `<div class="player-card"><div class="player-head"><strong>${label}</strong><span>${state.progress[key]}</span></div><div class="actions"><button data-adjust="progress.${key}:-1">-</button><button data-adjust="progress.${key}:1">+</button></div></div>`).join("")}</div>`;
 }
 
-function renderVoteControls() {
-  return `<div class="controls">${state.players.map((p) => `<div class="player-card"><div class="player-head"><strong>${p.name}</strong><span>疑惑${p.suspicion}</span></div><div class="actions"><button data-suspicion="${p.id}">疑惑+1</button><button data-isolate="${p.id}">${p.isolated ? "孤立解除" : "孤立"}</button></div></div>`).join("")}</div>`;
-}
-
 function renderOnlineControls() {
   return `<label>部屋ID<input id="roomIdInput" value="${state.online.roomId || ""}" placeholder="例: island-test"></label>
   <p class="scoreline">状態: ${state.online.status}</p>
@@ -624,7 +613,7 @@ function renderPlayers() {
   playersPanel.innerHTML = `<h2>脱出状況</h2><p class="scoreline">目標: ${t.turn}ターン以内</p>
     <div class="chips"><span class="chip">橋 ${p.bridges}/${t.bridges}</span><span class="chip">修理 ${p.repair}/${t.repair}</span><span class="chip">信号 ${p.signal}/${t.signal}</span><span class="chip">航路 ${p.route}/${t.route}</span><span class="chip danger">危険 ${p.danger}/6</span></div>
     ${renderSupplies()}
-    <h2>漂流者</h2><div class="player-list">${state.players.map((player) => `<article class="player-card" style="--owner:${player.color}"><div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><button data-identity="${player.id}">正体確認</button></div><div class="chips"><span class="chip">${player.role}</span><span class="chip ${player.bot ? "" : "gold"}">${player.bot ? "Bot" : "あなた"}</span><span class="chip ${player.acted ? "gold" : ""}">${player.acted ? "移動済" : "未移動"}</span><span class="chip ${player.isolated ? "danger" : ""}">${player.isolated ? "孤立" : "協力可"}</span><span class="chip">疑惑${player.suspicion}</span></div></article>`).join("")}</div>${renderLog()}`;
+    <h2>漂流者</h2><div class="player-list">${state.players.map((player) => `<article class="player-card" style="--owner:${player.color}"><div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><span class="chip">${player.role}</span></div><div class="chips"><span class="chip ${player.bot ? "" : "gold"}">${player.bot ? "Bot" : "あなた"}</span><span class="chip ${player.acted ? "gold" : ""}">${player.acted ? "移動済" : "未移動"}</span><span class="chip">協力中</span></div></article>`).join("")}</div>${renderLog()}`;
 }
 
 function renderLog() {
@@ -642,21 +631,10 @@ document.addEventListener("click", (event) => {
   if (!(target instanceof HTMLElement)) return;
   const tile = target.closest("[data-tile]");
   if (tile instanceof HTMLElement) moveSelected(tile.dataset.tile);
-  if (target.dataset.identity) showIdentity(target.dataset.identity);
   if (target.dataset.actionPlayer) doTileAction(target.dataset.actionPlayer);
   if (target.dataset.adjust) {
     const [path, amount] = target.dataset.adjust.split(":");
     adjust(path, Number(amount));
-  }
-  if (target.dataset.suspicion) {
-    const player = state.players.find((p) => p.id === target.dataset.suspicion);
-    player.suspicion += 1;
-    saveAndRender();
-  }
-  if (target.dataset.isolate) {
-    const player = state.players.find((p) => p.id === target.dataset.isolate);
-    player.isolated = !player.isolated;
-    saveAndRender();
   }
   if (target.dataset.night) triggerNight(target.dataset.night);
   if (target.dataset.damageBridge) damageBridge(target.dataset.damageBridge);
@@ -677,6 +655,5 @@ document.addEventListener("change", (event) => {
 });
 
 document.querySelector("#startGame").addEventListener("click", startGame);
-document.querySelector("#closeIdentity").addEventListener("click", () => identityDialog.close());
 playerCount.addEventListener("change", renderNameFields);
 renderNameFields();

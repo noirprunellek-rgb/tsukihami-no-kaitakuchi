@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>月喰みの漂流島 Web Prototype</title>
+    <title>漂流島脱出 Web Prototype</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Co-op survival hidden-role prototype</p>
-          <h1>月喰みの漂流島</h1>
+          <p class="eyebrow">Co-op survival island prototype</p>
+          <h1>漂流島脱出</h1>
         </div>
         <div class="round-box">
           <span>Turn</span>
@@ -22,7 +22,7 @@
       <section class="setup" id="setupPanel">
         <div class="section-title">
           <h2>漂流者を登録</h2>
-          <p>全員が同じ海岸から始め、島を探索して脱出を目指します。1人だけ月喰みが紛れています。</p>
+          <p>全員が同じ海岸から始め、島を探索して協力脱出を目指します。夜にはランダムなアクシデントが起こります。</p>
         </div>
         <div class="setup-grid">
           <label>人数
@@ -48,15 +48,6 @@
         <aside class="players" id="playersPanel"></aside>
       </section>
     </main>
-
-    <dialog id="identityDialog">
-      <div class="dialog-card">
-        <p class="eyebrow" id="identityOwner"></p>
-        <h2 id="identityTitle"></h2>
-        <p id="identityText"></p>
-        <button class="primary" id="closeIdentity">閉じる</button>
-      </div>
-    </dialog>
 
     <script src="./app.js"></script>
   </body>
