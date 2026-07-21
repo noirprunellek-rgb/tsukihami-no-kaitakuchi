@@ -20,19 +20,26 @@ const tileInfo = {
   cliff: { label: "崖", action: "見張り", icon: "崖", color: "#805f4a" },
 };
 
-const layoutRows = [5, 6, 7, 8, 9, 8, 7, 6, 5];
+const harborInfo = {
+  camp: { label: "野営港", icon: "営", note: "食料+1、薬草+1" },
+  dock: { label: "桟橋", icon: "港", note: "部品+1" },
+  lookout: { label: "見張り台", icon: "望", note: "救難信号+1" },
+  reef: { label: "岩礁", icon: "礁", note: "部品+1、危険+1" },
+};
+
+const layoutRows = [3, 4, 5, 4, 3];
 const terrainBag = [
-  "forest", "forest", "forest", "forest", "forest", "forest",
-  "rock", "rock", "rock", "rock", "swamp", "swamp", "swamp",
-  "river", "river", "river", "river", "river", "hill", "hill",
-  "hill", "cave", "cave", "cave", "ruin", "ruin", "ruin",
-  "wreck", "wreck", "jungle", "jungle", "jungle", "jungle",
-  "marsh", "marsh", "cliff", "cliff",
+  "forest", "forest", "forest",
+  "rock", "rock", "swamp",
+  "river", "river", "hill",
+  "cave", "ruin", "wreck",
+  "jungle", "jungle", "marsh",
+  "cliff", "forest", "rock", "swamp",
 ];
 
 const targetByCount = {
-  4: { turn: 14, bridges: 3, repair: 4, signal: 3, route: 3 },
-  5: { turn: 13, bridges: 3, repair: 4, signal: 4, route: 3 },
+  4: { turn: 10, bridges: 1, repair: 3, signal: 2, route: 2 },
+  5: { turn: 9, bridges: 1, repair: 3, signal: 2, route: 2 },
 };
 
 const state = {
@@ -93,15 +100,24 @@ function buildTerrainDeck() {
 function createMap(random) {
   const terrains = shuffle(buildTerrainDeck(), random);
   let index = 0;
+  const harborTypes = shuffle(["camp", "dock", "lookout", "reef"], random);
+  const harborSpots = new Map([
+    ["t0-1", harborTypes[0]],
+    ["t1-0", harborTypes[1]],
+    ["t3-3", harborTypes[2]],
+    ["t4-1", harborTypes[3]],
+  ]);
   return layoutRows.flatMap((length, row) => Array.from({ length }, (_, col) => {
     let terrain = terrains[index++];
-    if (row === 0 && col === Math.floor(length / 2)) terrain = "beach";
-    if (row === 8 && col === Math.floor(length / 2)) terrain = "wreck";
+    const id = `t${row}-${col}`;
+    if (row === 2 && col === 2) terrain = "beach";
+    if (row === 4 && col === 1) terrain = "wreck";
     return {
-      id: `t${row}-${col}`,
+      id,
       row,
       col,
       terrain,
+      harbor: harborSpots.get(id) || "",
       bridge: false,
       damaged: false,
       explored: terrain === "beach",
@@ -265,6 +281,16 @@ function doTileAction(playerId) {
     state.supplies.parts -= 1;
     state.progress.repair = Math.min(targets().repair, state.progress.repair + 1);
   }
+  if (tile.harbor === "camp") {
+    state.supplies.food += 1;
+    state.supplies.herb += 1;
+  }
+  if (tile.harbor === "dock") state.supplies.parts += 1;
+  if (tile.harbor === "lookout") state.progress.signal = Math.min(targets().signal, state.progress.signal + 1);
+  if (tile.harbor === "reef") {
+    state.supplies.parts += 1;
+    state.progress.danger += 1;
+  }
   const dangerNote = state.progress.danger > beforeDanger ? " 危険が増えた。" : "";
   if (isSoloHuman(player)) player.acted = true;
   if (player.bot) {
@@ -296,6 +322,10 @@ function botTileScore(player, tile) {
   if (tile.terrain === "marsh") score -= p.danger >= 4 ? 5 : 1;
   if (tile.terrain === "river" && !tile.bridge && s.wood < 2) score -= 2;
   if (tile.terrain === "cliff") score += state.night.visibleRange < 99 ? 2 : 0;
+  if (tile.harbor === "camp") score += s.food < state.players.length || s.herb < 2 ? 2 : 0;
+  if (tile.harbor === "dock") score += s.parts < 3 ? 3 : 0;
+  if (tile.harbor === "lookout") score += p.signal < t.signal ? 3 : 0;
+  if (tile.harbor === "reef") score += p.danger >= 4 ? -3 : 1;
   return score + Math.random() * 0.75;
 }
 
@@ -564,11 +594,13 @@ function renderMap() {
 function renderTile(tile) {
   const visible = canSee(tile);
   const info = tileInfo[tile.terrain];
+  const harbor = tile.harbor ? harborInfo[tile.harbor] : null;
   const occupants = state.players.filter((p) => p.tileId === tile.id);
   const label = visible ? info.label : "不明";
   const icon = visible ? info.icon : "?";
   return `<div class="hex ${tile.terrain} ${tile.damaged ? "blocked" : ""} ${visible ? "" : "obscured"}" data-tile="${tile.id}" style="background:${visible ? info.color : "#323844"}">
     <strong>${icon}</strong><small>${label}</small>${tile.bridge && visible ? "<span class=\"hex-num\">橋</span>" : ""}
+    ${harbor && visible ? `<span class="harbor-badge" title="${harbor.note}">${harbor.icon}</span>` : ""}
     <div class="meeples">${occupants.map((p) => `<b style="background:${p.color}">${p.name.slice(0, 1)}</b>`).join("")}</div>
   </div>`;
 }

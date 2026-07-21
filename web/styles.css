@@ -299,6 +299,23 @@ button:hover {
   font-weight: 900;
 }
 
+.harbor-badge {
+  position: absolute;
+  right: 8px;
+  top: 9px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+  border-radius: 50%;
+  background: rgba(32, 36, 42, 0.72);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-shadow: none;
+}
+
 .hex strong {
   margin-top: 6px;
   font-size: 1.1rem;
