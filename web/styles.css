@@ -250,6 +250,12 @@ button:hover {
   filter: brightness(1.06);
 }
 
+.hex.selected {
+  border-color: #ffffff;
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
 .hex.forest {
   background: #2f7d5a;
 }
@@ -299,21 +305,56 @@ button:hover {
   font-weight: 900;
 }
 
-.harbor-badge {
+.hex-num.hot {
+  background: #f5e4e2;
+  color: var(--danger);
+}
+
+.robber {
   position: absolute;
-  right: 8px;
+  left: 8px;
   top: 9px;
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
-  border: 2px solid rgba(255, 255, 255, 0.88);
   border-radius: 50%;
-  background: rgba(32, 36, 42, 0.72);
+  background: rgba(20, 25, 32, 0.78);
   color: #fff;
   font-size: 0.78rem;
   font-weight: 900;
   text-shadow: none;
+}
+
+.building,
+.road-mark {
+  position: absolute;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.86);
+  border-radius: 6px;
+  background: var(--owner);
+  color: #fff;
+  padding: 1px 5px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-shadow: none;
+}
+
+.building.city {
+  min-width: 34px;
+  min-height: 26px;
+}
+
+.road-mark {
+  right: 6px;
+  bottom: 6px;
+  min-width: 24px;
+  min-height: 20px;
+  background: rgba(32, 36, 42, 0.7);
 }
 
 .hex strong {
@@ -413,6 +454,11 @@ button:hover {
   padding: 12px;
 }
 
+.player-card.active-player {
+  border-color: var(--gold);
+  box-shadow: inset 4px 0 0 var(--gold);
+}
+
 .player-head {
   display: flex;
   justify-content: space-between;
@@ -471,6 +517,13 @@ button:hover {
 
 .scoreline {
   margin-bottom: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.selected-line,
+.resource-line {
+  margin: 0;
   color: var(--muted);
   font-weight: 700;
 }

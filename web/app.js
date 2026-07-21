@@ -1,70 +1,45 @@
-const firebaseSdkVersion = "10.12.5";
-
-const rolesByCount = {
-  4: ["航海士", "医師", "大工", "探索者"],
-  5: ["航海士", "医師", "大工", "探索者", "記録係"],
+const terrainInfo = {
+  forest: { label: "森", resource: "wood", resourceLabel: "木材", icon: "木", color: "#2f7d5a" },
+  hill: { label: "丘陵", resource: "brick", resourceLabel: "レンガ", icon: "土", color: "#a95b3c" },
+  field: { label: "麦畑", resource: "grain", resourceLabel: "麦", icon: "麦", color: "#c99a35" },
+  pasture: { label: "牧草地", resource: "wool", resourceLabel: "羊毛", icon: "羊", color: "#6f9e5f" },
+  mountain: { label: "山地", resource: "ore", resourceLabel: "鉱石", icon: "鉱", color: "#737985" },
+  desert: { label: "砂漠", resource: "", resourceLabel: "なし", icon: "砂", color: "#b99a69" },
 };
 
-const tileInfo = {
-  beach: { label: "海岸", action: "交換", icon: "浜", color: "#4b8ca8" },
-  forest: { label: "森", action: "木材", icon: "木", color: "#2f7d5a" },
-  rock: { label: "岩場", action: "石材", icon: "石", color: "#737985" },
-  swamp: { label: "湿地", action: "薬草", icon: "薬", color: "#5b7d62" },
-  river: { label: "川", action: "橋", icon: "川", color: "#2c78a0" },
-  hill: { label: "丘", action: "信号", icon: "火", color: "#c28a21" },
-  cave: { label: "洞窟", action: "部品", icon: "洞", color: "#4f4b5d" },
-  ruin: { label: "遺跡", action: "手がかり", icon: "跡", color: "#8a6a45" },
-  wreck: { label: "難破船", action: "修理", icon: "船", color: "#9a4f3f" },
-  jungle: { label: "密林", action: "食料", icon: "実", color: "#386b3f" },
-  marsh: { label: "沼", action: "危険", icon: "沼", color: "#536b62" },
-  cliff: { label: "崖", action: "見張り", icon: "崖", color: "#805f4a" },
-};
-
-const harborInfo = {
-  camp: { label: "野営港", icon: "営", note: "食料+1、薬草+1" },
-  dock: { label: "桟橋", icon: "港", note: "部品+1" },
-  lookout: { label: "見張り台", icon: "望", note: "救難信号+1" },
-  reef: { label: "岩礁", icon: "礁", note: "部品+1、危険+1" },
+const resourceLabels = {
+  wood: "木材",
+  brick: "レンガ",
+  grain: "麦",
+  wool: "羊毛",
+  ore: "鉱石",
 };
 
 const layoutRows = [3, 4, 5, 4, 3];
-const terrainBag = [
-  "forest", "forest", "forest",
-  "rock", "rock", "swamp",
-  "river", "river", "hill",
-  "cave", "ruin", "wreck",
-  "jungle", "jungle", "marsh",
-  "cliff", "forest", "rock", "swamp",
+const terrains = [
+  "forest", "forest", "forest", "forest",
+  "hill", "hill", "hill",
+  "field", "field", "field", "field",
+  "pasture", "pasture", "pasture", "pasture",
+  "mountain", "mountain", "mountain",
+  "desert",
 ];
-
-const targetByCount = {
-  4: { turn: 10, bridges: 1, repair: 3, signal: 2, route: 2 },
-  5: { turn: 9, bridges: 1, repair: 3, signal: 2, route: 2 },
-};
+const numberTokens = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11];
+const colors = ["#2f7d5a", "#b84f43", "#2e68a6", "#7b5bbb"];
 
 const state = {
   turn: 1,
-  phase: "map",
+  currentPlayer: 0,
+  lastRoll: null,
   players: [],
   map: [],
-  selectedPlayerId: "",
-  supplies: { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 },
-  progress: { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 },
-  night: { event: "none", visibleRange: 99, note: "" },
-  solo: { enabled: false, humanPlayerId: "" },
-  online: { roomId: "", connected: false, status: "未接続" },
+  robberTileId: "",
+  selectedTileId: "",
   log: [],
 };
 
-let firebaseApi = null;
-let roomRef = null;
-let unsubscribeRoom = null;
-let applyingRemote = false;
-let syncTimer = null;
-
 const playerCount = document.querySelector("#playerCount");
 const seedInput = document.querySelector("#seedInput");
-const soloMode = document.querySelector("#soloMode");
 const nameFields = document.querySelector("#nameFields");
 const setupPanel = document.querySelector("#setupPanel");
 const gamePanel = document.querySelector("#gamePanel");
@@ -90,110 +65,6 @@ function shuffle(items, random) {
   return copy;
 }
 
-function buildTerrainDeck() {
-  const total = layoutRows.reduce((sum, row) => sum + row, 0);
-  const deck = [];
-  while (deck.length < total) deck.push(...terrainBag);
-  return deck.slice(0, total);
-}
-
-function createMap(random) {
-  const terrains = shuffle(buildTerrainDeck(), random);
-  let index = 0;
-  const harborTypes = shuffle(["camp", "dock", "lookout", "reef"], random);
-  const harborSpots = new Map([
-    ["t0-1", harborTypes[0]],
-    ["t1-0", harborTypes[1]],
-    ["t3-3", harborTypes[2]],
-    ["t4-1", harborTypes[3]],
-  ]);
-  return layoutRows.flatMap((length, row) => Array.from({ length }, (_, col) => {
-    let terrain = terrains[index++];
-    const id = `t${row}-${col}`;
-    if (row === 2 && col === 2) terrain = "beach";
-    if (row === 4 && col === 1) terrain = "wreck";
-    return {
-      id,
-      row,
-      col,
-      terrain,
-      harbor: harborSpots.get(id) || "",
-      bridge: false,
-      damaged: false,
-      explored: terrain === "beach",
-    };
-  }));
-}
-
-function renderNameFields() {
-  nameFields.innerHTML = "";
-  for (let i = 0; i < Number(playerCount.value); i += 1) {
-    const label = document.createElement("label");
-    label.textContent = `プレイヤー${i + 1}`;
-    const input = document.createElement("input");
-    input.value = `P${i + 1}`;
-    input.dataset.nameInput = "true";
-    label.append(input);
-    nameFields.append(label);
-  }
-}
-
-function startGame() {
-  const count = Number(playerCount.value);
-  const soloEnabled = Boolean(soloMode?.checked);
-  const random = seededRandom(`${seedInput.value}-${Date.now()}`);
-  const roles = shuffle(rolesByCount[count], random);
-  const names = [...document.querySelectorAll("[data-name-input]")].map((input, i) => input.value.trim() || `P${i + 1}`);
-
-  state.map = createMap(random);
-  const startTile = state.map.find((tile) => tile.terrain === "beach").id;
-  state.players = names.map((name, i) => ({
-    id: crypto.randomUUID(),
-    name,
-    color: ["#2f7d5a", "#b84f43", "#2e68a6", "#7b5bbb", "#c28a21"][i],
-    role: roles[i],
-    tileId: startTile,
-    acted: false,
-    bot: soloEnabled && i > 0,
-  }));
-  Object.assign(state, {
-    turn: 1,
-    phase: "map",
-    selectedPlayerId: state.players[0].id,
-    supplies: { wood: 0, stone: 0, food: 0, herb: 0, parts: 0, clue: 0 },
-    progress: { bridges: 0, repair: 0, signal: 0, route: 0, danger: 0 },
-    night: { event: "none", visibleRange: 99, note: "" },
-    solo: { enabled: soloEnabled, humanPlayerId: state.players[0].id },
-    log: ["全員が漂着海岸に流れ着いた。広い島を探索し、目標ターンまでに脱出しよう。"],
-  });
-  setupPanel.classList.add("hidden");
-  gamePanel.classList.remove("hidden");
-  saveAndRender();
-}
-
-function addLog(text) {
-  state.log.unshift(`T${state.turn}: ${text}`);
-  state.log = state.log.slice(0, 60);
-  saveAndRender();
-}
-
-function pushLog(text) {
-  state.log.unshift(`T${state.turn}: ${text}`);
-  state.log = state.log.slice(0, 60);
-}
-
-function humanPlayer() {
-  return state.players.find((player) => player.id === state.solo?.humanPlayerId) || state.players[0];
-}
-
-function isSoloHuman(player) {
-  return Boolean(state.solo?.enabled && player?.id === state.solo.humanPlayerId);
-}
-
-function findTile(id) {
-  return state.map.find((tile) => tile.id === id);
-}
-
 function rowStart(row) {
   return -Math.floor(layoutRows[row] / 2);
 }
@@ -214,377 +85,218 @@ function neighbors(tile) {
   return state.map.filter((other) => other.id !== tile.id && distance(tile, other) <= 1);
 }
 
-function canSee(tile) {
-  if (state.night.visibleRange >= 99) return true;
-  return state.players.some((player) => distance(findTile(player.tileId), tile) <= state.night.visibleRange);
+function createMap(random) {
+  const terrainDeck = shuffle(terrains, random);
+  const numbers = shuffle(numberTokens, random);
+  let tileIndex = 0;
+  let numberIndex = 0;
+  return layoutRows.flatMap((length, row) => Array.from({ length }, (_, col) => {
+    const terrain = terrainDeck[tileIndex];
+    const id = `t${row}-${col}`;
+    tileIndex += 1;
+    return {
+      id,
+      row,
+      col,
+      terrain,
+      number: terrain === "desert" ? null : numbers[numberIndex++],
+      building: null,
+      roads: [],
+    };
+  }));
 }
 
-function moveSelected(tileId) {
-  const player = state.players.find((p) => p.id === state.selectedPlayerId);
-  if (!player || player.acted) return;
-  if (state.solo?.enabled && !isSoloHuman(player)) return;
-  const from = findTile(player.tileId);
-  const to = findTile(tileId);
-  if (!from || !to) return;
-  if (from.id !== to.id && !neighbors(from).some((tile) => tile.id === to.id)) return;
-  if (to.terrain === "river" && !to.bridge) {
-    player.tileId = to.id;
-    player.acted = true;
-    to.explored = true;
-    addLog(`${player.name}は川で足止めされた。橋がないと渡り切れない。`);
-    return;
+function renderNameFields() {
+  nameFields.innerHTML = "";
+  for (let i = 0; i < Number(playerCount.value); i += 1) {
+    const label = document.createElement("label");
+    label.textContent = `プレイヤー${i + 1}`;
+    const input = document.createElement("input");
+    input.value = `P${i + 1}`;
+    input.dataset.nameInput = "true";
+    label.append(input);
+    nameFields.append(label);
   }
-  player.tileId = to.id;
-  player.acted = true;
-  to.explored = true;
-  addLog(`${player.name}は${tileInfo[to.terrain].label}へ移動した。`);
 }
 
-function doTileAction(playerId) {
-  const player = state.players.find((p) => p.id === playerId);
-  if (!player) return;
-  if (state.solo?.enabled && !isSoloHuman(player) && !player.bot) return;
-  const tile = findTile(player.tileId);
-  if (!tile) return;
-  const beforeDanger = state.progress.danger;
-  if (tile.terrain === "forest") state.supplies.wood += 1;
-  if (tile.terrain === "rock") state.supplies.stone += 1;
-  if (tile.terrain === "jungle") state.supplies.food += 1;
-  if (tile.terrain === "swamp") state.supplies.herb += 1;
-  if (tile.terrain === "marsh") state.progress.danger += 1;
-  if (tile.terrain === "cave") {
-    state.supplies.parts += 1;
-    state.progress.danger += 1;
-  }
-  if (tile.terrain === "cliff") state.night.visibleRange = 2;
-  if (tile.terrain === "hill") state.progress.signal = Math.min(targets().signal, state.progress.signal + 1);
-  if (tile.terrain === "ruin") {
-    state.supplies.clue += 1;
-    if (state.supplies.clue >= 2 && state.progress.route < targets().route) {
-      state.supplies.clue -= 2;
-      state.progress.route += 1;
-    }
-  }
-  if (tile.terrain === "river" && !tile.bridge && state.supplies.wood >= 2 && state.supplies.stone >= 1) {
-    state.supplies.wood -= 2;
-    state.supplies.stone -= 1;
-    tile.bridge = true;
-    tile.damaged = false;
-    state.progress.bridges += 1;
-  }
-  if (tile.terrain === "river" && tile.damaged && state.supplies.wood >= 1) {
-    state.supplies.wood -= 1;
-    tile.damaged = false;
-  }
-  if (tile.terrain === "wreck" && state.supplies.wood >= 1 && state.supplies.parts >= 1) {
-    state.supplies.wood -= 1;
-    state.supplies.parts -= 1;
-    state.progress.repair = Math.min(targets().repair, state.progress.repair + 1);
-  }
-  if (tile.harbor === "camp") {
-    state.supplies.food += 1;
-    state.supplies.herb += 1;
-  }
-  if (tile.harbor === "dock") state.supplies.parts += 1;
-  if (tile.harbor === "lookout") state.progress.signal = Math.min(targets().signal, state.progress.signal + 1);
-  if (tile.harbor === "reef") {
-    state.supplies.parts += 1;
-    state.progress.danger += 1;
-  }
-  const dangerNote = state.progress.danger > beforeDanger ? " 危険が増えた。" : "";
-  if (isSoloHuman(player)) player.acted = true;
-  if (player.bot) {
-    pushLog(`${player.name} Bot: ${tileInfo[tile.terrain].label}の行動を実行した。${dangerNote}`);
-    return;
-  }
-  pushLog(`${player.name}が${tileInfo[tile.terrain].label}の行動を実行した。${dangerNote}`);
-  if (isSoloHuman(player)) {
-    runBotTurns();
-    return;
-  }
+function startGame() {
+  const count = Number(playerCount.value);
+  const random = seededRandom(`${seedInput.value}-${Date.now()}`);
+  const names = [...document.querySelectorAll("[data-name-input]")].map((input, i) => input.value.trim() || `P${i + 1}`);
+  state.map = createMap(random);
+  state.robberTileId = state.map.find((tile) => tile.terrain === "desert")?.id || state.map[0].id;
+  state.players = names.slice(0, count).map((name, i) => ({
+    id: crypto.randomUUID(),
+    name,
+    color: colors[i],
+    resources: { wood: 0, brick: 0, grain: 0, wool: 0, ore: 0 },
+    roads: 0,
+    settlements: 0,
+    cities: 0,
+    devCards: 0,
+  }));
+  state.turn = 1;
+  state.currentPlayer = 0;
+  state.lastRoll = null;
+  state.selectedTileId = state.map[0].id;
+  state.log = ["ゲーム開始。初期配置として各プレイヤーは開拓地2つ・道2本を自由に置いてください。"];
+  setupPanel.classList.add("hidden");
+  gamePanel.classList.remove("hidden");
   saveAndRender();
 }
 
-function botTileScore(player, tile) {
-  const s = state.supplies;
-  const p = state.progress;
-  const t = targets();
-  let score = tile.id === player.tileId ? 0.1 : 1;
-  if (tile.terrain === "wreck") score += p.repair < t.repair && s.wood >= 1 && s.parts >= 1 ? 9 : 1;
-  if (tile.terrain === "river") score += p.bridges < t.bridges && s.wood >= 2 && s.stone >= 1 ? 8 : -1;
-  if (tile.terrain === "hill") score += p.signal < t.signal ? 6 : 0;
-  if (tile.terrain === "ruin") score += p.route < t.route ? 5 : 0;
-  if (tile.terrain === "forest") score += s.wood < 4 ? 4 : 1;
-  if (tile.terrain === "rock") score += s.stone < 3 ? 3 : 1;
-  if (tile.terrain === "cave") score += s.parts < 3 ? 3 : 0;
-  if (tile.terrain === "jungle") score += s.food < state.players.length ? 2 : 0;
-  if (tile.terrain === "swamp") score += s.herb < 2 ? 2 : 0;
-  if (tile.terrain === "marsh") score -= p.danger >= 4 ? 5 : 1;
-  if (tile.terrain === "river" && !tile.bridge && s.wood < 2) score -= 2;
-  if (tile.terrain === "cliff") score += state.night.visibleRange < 99 ? 2 : 0;
-  if (tile.harbor === "camp") score += s.food < state.players.length || s.herb < 2 ? 2 : 0;
-  if (tile.harbor === "dock") score += s.parts < 3 ? 3 : 0;
-  if (tile.harbor === "lookout") score += p.signal < t.signal ? 3 : 0;
-  if (tile.harbor === "reef") score += p.danger >= 4 ? -3 : 1;
-  return score + Math.random() * 0.75;
+function currentPlayer() {
+  return state.players[state.currentPlayer];
 }
 
-function chooseBotTile(player) {
-  const current = findTile(player.tileId);
-  if (!current) return null;
-  return [current, ...neighbors(current)]
-    .sort((a, b) => botTileScore(player, b) - botTileScore(player, a))[0];
+function selectedTile() {
+  return state.map.find((tile) => tile.id === state.selectedTileId) || state.map[0];
 }
 
-function autoBotTurn(player) {
-  if (!player || player.acted) return;
-  const tile = chooseBotTile(player);
-  if (!tile) return;
-  player.tileId = tile.id;
-  player.acted = true;
-  tile.explored = true;
-  pushLog(`${player.name} Bot: ${tileInfo[tile.terrain].label}へ移動した。`);
-  doTileAction(player.id);
-}
-
-function runBotTurns() {
-  if (!state.solo?.enabled) {
-    saveAndRender();
-    return;
-  }
-  state.players.filter((player) => player.bot && !player.acted).forEach(autoBotTurn);
-  if (state.players.every((player) => player.acted)) {
-    state.turn += 1;
-    state.players.forEach((player) => { player.acted = false; });
-    applyRandomNight();
-    state.phase = "map";
-    state.selectedPlayerId = humanPlayer().id;
-    pushLog("Botの行動が完了。夜のアクシデントを処理して次のターンへ。");
-  } else {
-    state.phase = "map";
-    state.selectedPlayerId = humanPlayer().id;
-  }
+function addLog(text) {
+  state.log.unshift(`T${state.turn}: ${text}`);
+  state.log = state.log.slice(0, 80);
   saveAndRender();
 }
 
-function targets() {
-  return targetByCount[state.players.length] || targetByCount[4];
+function resourceText(resources) {
+  return Object.entries(resourceLabels).map(([key, label]) => `${label}${resources[key] || 0}`).join(" / ");
+}
+
+function canAfford(cost) {
+  const player = currentPlayer();
+  return Object.entries(cost).every(([key, amount]) => player.resources[key] >= amount);
+}
+
+function pay(cost) {
+  const player = currentPlayer();
+  Object.entries(cost).forEach(([key, amount]) => {
+    player.resources[key] -= amount;
+  });
+}
+
+function grant(player, resource, amount = 1) {
+  if (!resource) return;
+  player.resources[resource] += amount;
+}
+
+function rollDice() {
+  const d1 = Math.floor(Math.random() * 6) + 1;
+  const d2 = Math.floor(Math.random() * 6) + 1;
+  const total = d1 + d2;
+  state.lastRoll = { d1, d2, total };
+  if (total === 7) {
+    addLog(`${currentPlayer().name} が ${d1}+${d2}=7 を出した。盗賊を好きなタイルへ移動してください。`);
+    return;
+  }
+  const gains = [];
+  state.map.filter((tile) => tile.number === total && tile.id !== state.robberTileId).forEach((tile) => {
+    if (!tile.building) return;
+    const owner = state.players[tile.building.owner];
+    const amount = tile.building.type === "city" ? 2 : 1;
+    grant(owner, terrainInfo[tile.terrain].resource, amount);
+    gains.push(`${owner.name}+${terrainInfo[tile.terrain].resourceLabel}${amount}`);
+  });
+  addLog(`${currentPlayer().name} が ${d1}+${d2}=${total} を出した。${gains.length ? gains.join("、") : "産出なし。"}`);
+}
+
+function buildSettlement() {
+  const tile = selectedTile();
+  if (!tile || tile.building || tile.terrain === "desert") return;
+  const player = currentPlayer();
+  const freeInitial = player.settlements < 2;
+  const cost = { wood: 1, brick: 1, grain: 1, wool: 1 };
+  if (!freeInitial && !canAfford(cost)) return;
+  if (!freeInitial) pay(cost);
+  tile.building = { owner: state.currentPlayer, type: "settlement" };
+  player.settlements += 1;
+  addLog(`${player.name} が ${terrainInfo[tile.terrain].label} に開拓地を建てた。`);
+}
+
+function buildCity() {
+  const tile = selectedTile();
+  if (!tile?.building || tile.building.owner !== state.currentPlayer || tile.building.type !== "settlement") return;
+  const cost = { grain: 2, ore: 3 };
+  if (!canAfford(cost)) return;
+  pay(cost);
+  tile.building.type = "city";
+  const player = currentPlayer();
+  player.cities += 1;
+  addLog(`${player.name} が開拓地を街に発展させた。`);
+}
+
+function buildRoad() {
+  const tile = selectedTile();
+  if (!tile) return;
+  const player = currentPlayer();
+  const freeInitial = player.roads < 2;
+  const cost = { wood: 1, brick: 1 };
+  if (!freeInitial && !canAfford(cost)) return;
+  if (!freeInitial) pay(cost);
+  if (!tile.roads.includes(state.currentPlayer)) tile.roads.push(state.currentPlayer);
+  player.roads += 1;
+  addLog(`${player.name} が ${terrainInfo[tile.terrain].label} 周辺に道を伸ばした。`);
+}
+
+function buyDevCard() {
+  const cost = { grain: 1, wool: 1, ore: 1 };
+  if (!canAfford(cost)) return;
+  pay(cost);
+  currentPlayer().devCards += 1;
+  addLog(`${currentPlayer().name} が発展カードを購入した。`);
+}
+
+function moveRobber() {
+  const tile = selectedTile();
+  if (!tile) return;
+  state.robberTileId = tile.id;
+  addLog(`盗賊が ${terrainInfo[tile.terrain].label} に移動した。`);
+}
+
+function giveResource(resource) {
+  grant(currentPlayer(), resource, 1);
+  addLog(`${currentPlayer().name} に ${resourceLabels[resource]} を1つ追加した。`);
 }
 
 function nextTurn() {
-  state.turn += 1;
-  state.players.forEach((p) => { p.acted = false; });
-  applyRandomNight();
-  state.phase = "map";
-  if (state.solo?.enabled) state.selectedPlayerId = humanPlayer().id;
-  addLog("夜のアクシデントを処理して次のターンへ。");
-}
-
-function nightEvents() {
-  return {
-    fog: { event: "fog", visibleRange: 1, note: "濃霧。各自の周囲1マスしか見えない。" },
-    darkness: { event: "darkness", visibleRange: 0, note: "月隠れ。自分がいるマスしか見えない。" },
-    storm: { event: "storm", visibleRange: 1, note: "嵐。視界1、危険+1。" },
-    lost: { event: "lost", visibleRange: 1, note: "道迷い。選択中の漂流者を隣接マスへずらす。" },
-    calm: { event: "calm", visibleRange: 99, note: "静かな夜。何も起きなかった。" },
-  };
-}
-
-function applyNight(eventType) {
-  const events = nightEvents();
-  state.night = events[eventType] || events.calm;
-  if (eventType === "storm") state.progress.danger += 1;
-  if (eventType === "lost") {
-    const player = state.players.find((p) => p.id === state.selectedPlayerId) || state.players[0];
-    const current = findTile(player?.tileId);
-    const options = current ? neighbors(current) : [];
-    const target = options[Math.floor(Math.random() * options.length)];
-    if (player && target) {
-      player.tileId = target.id;
-      target.explored = true;
-      state.night.note += ` ${player.name}が流されて${tileInfo[target.terrain].label}へ移動した。`;
-    }
+  const winner = state.players.find((player) => victoryPoints(player) >= 10);
+  if (winner) {
+    addLog(`${winner.name} が10点に到達して勝利！`);
+    return;
   }
-}
-
-function applyRandomNight() {
-  const deck = ["calm", "fog", "fog", "darkness", "storm", "lost"];
-  applyNight(deck[Math.floor(Math.random() * deck.length)]);
-  pushLog(`夜: ${state.night.note}`);
-}
-
-function triggerNight(eventType) {
-  applyNight(eventType);
-  addLog(`夜: ${state.night.note}`);
-}
-
-function damageBridge(tileId) {
-  const tile = findTile(tileId);
-  if (!tile || tile.terrain !== "river" || !tile.bridge) return;
-  tile.damaged = true;
-  addLog("夜の嵐で橋が損傷した。");
-}
-
-function adjust(path, amount) {
-  const [group, key] = path.split(".");
-  state[group][key] = Math.max(0, state[group][key] + amount);
+  state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
+  if (state.currentPlayer === 0) state.turn += 1;
+  state.lastRoll = null;
   saveAndRender();
 }
 
-function exportState() {
-  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(plainState()))));
-  navigator.clipboard?.writeText(payload);
-  addLog("盤面コードをコピーしました。");
-}
-
-function importState(value) {
-  try {
-    applyState(JSON.parse(decodeURIComponent(escape(atob(value.trim())))));
-    setupPanel.classList.add("hidden");
-    gamePanel.classList.remove("hidden");
-    saveAndRender(false);
-  } catch {
-    addLog("盤面コードを読み込めませんでした。");
-  }
-}
-
-function plainState() {
-  return {
-    turn: state.turn,
-    phase: state.phase,
-    players: state.players,
-    map: state.map,
-    selectedPlayerId: state.selectedPlayerId,
-    supplies: state.supplies,
-    progress: state.progress,
-    night: state.night,
-    solo: state.solo,
-    online: state.online,
-    log: state.log,
-  };
-}
-
-function applyState(data) {
-  Object.assign(state, data);
-  state.solo = { enabled: false, humanPlayerId: "", ...(data.solo || {}) };
-  state.players.forEach((player, index) => {
-    if (player.bot === undefined) player.bot = state.solo.enabled && index > 0;
-  });
-  state.online = { ...state.online, ...(data.online || {}) };
-}
-
-function saveAndRender(shouldSync = true) {
-  localStorage.setItem("tsukihami-island-state", JSON.stringify(plainState()));
-  render();
-  if (shouldSync) scheduleSync();
-}
-
-async function loadFirebase() {
-  if (firebaseApi) return firebaseApi;
-  const configModule = await loadFirebaseConfig();
-  const appModule = await import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-app.js`);
-  const dbModule = await import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-database.js`);
-  const app = appModule.initializeApp(configModule);
-  const db = dbModule.getDatabase(app);
-  firebaseApi = { db, ref: dbModule.ref, set: dbModule.set, onValue: dbModule.onValue };
-  return firebaseApi;
-}
-
-async function loadFirebaseConfig() {
-  const saved = localStorage.getItem("tsukihami-firebase-config");
-  if (saved) return JSON.parse(saved);
-  try {
-    const module = await import("./firebase-config.js");
-    return module.firebaseConfig;
-  } catch {
-    throw new Error("Firebase config is missing");
-  }
-}
-
-function saveFirebaseConfig(value) {
-  try {
-    const trimmed = value.trim();
-    const objectText = trimmed
-      .replace(/^(export\s+)?const\s+firebaseConfig\s*=\s*/, "")
-      .replace(/;\s*$/, "");
-    const config = Function(`"use strict"; return (${objectText});`)();
-    if (!config.apiKey || !config.databaseURL || !config.projectId) throw new Error("Invalid config");
-    localStorage.setItem("tsukihami-firebase-config", JSON.stringify(config));
-    state.online.status = "Firebase設定を保存済み";
-    addLog("Firebase設定を保存しました。部屋を作れるようになりました。");
-  } catch {
-    state.online.status = "Firebase設定を読み取れませんでした";
-    render();
-  }
-}
-
-async function connectRoom(roomId, createIfEmpty) {
-  try {
-    const api = await loadFirebase();
-    const cleanRoomId = roomId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 32);
-    if (!cleanRoomId) throw new Error("Room id is required");
-    if (unsubscribeRoom) unsubscribeRoom();
-    roomRef = api.ref(api.db, `rooms/${cleanRoomId}`);
-    state.online = { roomId: cleanRoomId, connected: true, status: "接続中" };
-    if (createIfEmpty) await api.set(roomRef, { state: plainState(), updatedAt: Date.now() });
-    unsubscribeRoom = api.onValue(roomRef, (snapshot) => {
-      const value = snapshot.val();
-      if (!value?.state) return;
-      applyingRemote = true;
-      applyState(value.state);
-      state.online = { roomId: cleanRoomId, connected: true, status: "同期中" };
-      setupPanel.classList.add("hidden");
-      gamePanel.classList.remove("hidden");
-      render();
-      applyingRemote = false;
-    });
-    addLog(`部屋 ${cleanRoomId} に接続した。`);
-  } catch (error) {
-    state.online.status = "未接続: Firebase設定またはDBルールを確認";
-    render();
-  }
-}
-
-function scheduleSync() {
-  if (applyingRemote || !state.online.connected || !roomRef || !firebaseApi) return;
-  window.clearTimeout(syncTimer);
-  syncTimer = window.setTimeout(() => {
-    firebaseApi.set(roomRef, { state: plainState(), updatedAt: Date.now() });
-  }, 250);
+function victoryPoints(player) {
+  return player.settlements + player.cities + player.devCards;
 }
 
 function renderPhase() {
   phasePanel.innerHTML = `<div class="dashboard">
     <section class="tool-panel map-panel">
       <div class="panel-head">
-        <div><h2>島マップ</h2><p>選択中の漂流者を1マス移動し、着いた場所の行動を実行します。</p></div>
-        <button data-action="nextTurn">次ターン</button>
+        <div><h2>カタン島</h2><p>タイルを選んで建設します。数字が出ると、そのタイルに建物を持つプレイヤーが資源を得ます。</p></div>
+        <button class="primary" data-action="roll">ダイスを振る</button>
       </div>
       ${renderMap()}
     </section>
     <section class="tool-panel">
-      <div class="panel-head"><div><h2>パネルアクション</h2><p>今いるマスの効果を実行します。ソロではP1の行動後にBotが自動で動きます。</p></div></div>
-      ${renderActionList()}
+      <div class="panel-head"><div><h2>建設</h2><p>初期配置の開拓地2つ・道2本は無料です。その後は通常コストを支払います。</p></div></div>
+      ${renderBuildControls()}
     </section>
     <section class="tool-panel">
-      <div class="panel-head"><div><h2>夜のアクシデント</h2><p>次ターン開始時にランダム発生します。下のボタンはテスト用です。</p></div></div>
-      ${renderNightControls()}
-    </section>
-    <section class="tool-panel">
-      <div class="panel-head">
-        <div><h2>オンライン同期</h2><p>Firebaseの部屋同期と盤面コード共有。</p></div>
-        <div class="actions"><button data-action="saveFirebase">Firebase設定を保存</button><button class="primary" data-action="createRoom">部屋を作る</button><button data-action="joinRoom">部屋に参加</button><button data-action="export">盤面コードをコピー</button><button data-action="import">コード読込</button></div>
-      </div>
-      ${renderOnlineControls()}
+      <div class="panel-head"><div><h2>補助操作</h2><p>試作プレイ用に資源追加と盗賊移動を手動で行えます。</p></div></div>
+      ${renderHelperControls()}
     </section>
   </div>`;
 }
 
 function renderMap() {
   let index = 0;
-  const selectablePlayers = state.solo?.enabled ? [humanPlayer()] : state.players;
-  return `<label class="select-player">動かす人<select id="selectedPlayer">${selectablePlayers.map((p) => `<option value="${p.id}" ${p.id === state.selectedPlayerId ? "selected" : ""}>${p.name}${p.bot ? " Bot" : ""}</option>`).join("")}</select></label>
-  <div class="map-wrap large-map">${layoutRows.map((length) => {
+  return `<div class="map-wrap large-map">${layoutRows.map((length) => {
     const tiles = state.map.slice(index, index + length);
     index += length;
     return `<div class="hex-row row-${length}">${tiles.map(renderTile).join("")}</div>`;
@@ -592,60 +304,50 @@ function renderMap() {
 }
 
 function renderTile(tile) {
-  const visible = canSee(tile);
-  const info = tileInfo[tile.terrain];
-  const harbor = tile.harbor ? harborInfo[tile.harbor] : null;
-  const occupants = state.players.filter((p) => p.tileId === tile.id);
-  const label = visible ? info.label : "不明";
-  const icon = visible ? info.icon : "?";
-  return `<div class="hex ${tile.terrain} ${tile.damaged ? "blocked" : ""} ${visible ? "" : "obscured"}" data-tile="${tile.id}" style="background:${visible ? info.color : "#323844"}">
-    <strong>${icon}</strong><small>${label}</small>${tile.bridge && visible ? "<span class=\"hex-num\">橋</span>" : ""}
-    ${harbor && visible ? `<span class="harbor-badge" title="${harbor.note}">${harbor.icon}</span>` : ""}
-    <div class="meeples">${occupants.map((p) => `<b style="background:${p.color}">${p.name.slice(0, 1)}</b>`).join("")}</div>
+  const info = terrainInfo[tile.terrain];
+  const selected = tile.id === state.selectedTileId;
+  const building = tile.building ? state.players[tile.building.owner] : null;
+  return `<button class="hex ${tile.terrain} ${selected ? "selected" : ""}" data-tile="${tile.id}" style="background:${info.color}">
+    <strong>${info.icon}</strong>
+    <small>${info.label}</small>
+    ${tile.number ? `<span class="hex-num ${tile.number === 6 || tile.number === 8 ? "hot" : ""}">${tile.number}</span>` : ""}
+    ${state.robberTileId === tile.id ? `<span class="robber">盗</span>` : ""}
+    ${building ? `<span class="building ${tile.building.type}" style="--owner:${building.color}">${tile.building.type === "city" ? "街" : "村"}</span>` : ""}
+    ${tile.roads.length ? `<span class="road-mark">${tile.roads.map((owner) => state.players[owner].name.slice(0, 1)).join("")}</span>` : ""}
+  </button>`;
+}
+
+function renderBuildControls() {
+  const tile = selectedTile();
+  return `<div class="selected-line">選択中: <strong>${terrainInfo[tile.terrain].label}</strong>${tile.number ? ` / 数字 ${tile.number}` : ""}</div>
+  <div class="controls">
+    <button data-action="buildSettlement">開拓地を建てる<br><small>木材+レンガ+麦+羊毛</small></button>
+    <button data-action="buildRoad">道を伸ばす<br><small>木材+レンガ</small></button>
+    <button data-action="buildCity">街にする<br><small>麦2+鉱石3</small></button>
+    <button data-action="buyDev">発展カード<br><small>麦+羊毛+鉱石</small></button>
+    <button class="primary" data-action="nextTurn">ターン終了</button>
   </div>`;
 }
 
-function renderActionList() {
-  const actionPlayers = state.solo?.enabled ? [humanPlayer()] : state.players;
-  return `<div class="controls">${actionPlayers.map((p) => `<button data-action-player="${p.id}">${p.name}: 今いるマスの行動</button>`).join("")}</div>${renderSupplies()}`;
-}
-
-function renderNightControls() {
-  const bridgeButtons = state.map.filter((tile) => tile.terrain === "river" && tile.bridge).map((tile) => `<button data-damage-bridge="${tile.id}">橋を損傷 ${tile.id}</button>`).join("");
+function renderHelperControls() {
   return `<div class="controls">
-    <button data-night="fog">濃霧: 周囲1マス</button>
-    <button data-night="darkness">月隠れ: 自分のマスだけ</button>
-    <button data-night="storm">嵐: 視界1 + 危険</button>
-    <button data-night="lost">道迷い</button>
-    <button data-night="none">何もなし</button>
-    ${bridgeButtons || "<button disabled>損傷できる橋なし</button>"}
-  </div><p class="scoreline">${state.night.note || "夜の事故を選んでください。"}</p>${renderProgressControls()}`;
-}
-
-function renderProgressControls() {
-  const items = [["bridges", "橋"], ["repair", "船修理"], ["signal", "救難信号"], ["route", "航路"], ["danger", "危険"]];
-  return `<div class="controls">${items.map(([key, label]) => `<div class="player-card"><div class="player-head"><strong>${label}</strong><span>${state.progress[key]}</span></div><div class="actions"><button data-adjust="progress.${key}:-1">-</button><button data-adjust="progress.${key}:1">+</button></div></div>`).join("")}</div>`;
-}
-
-function renderOnlineControls() {
-  return `<label>部屋ID<input id="roomIdInput" value="${state.online.roomId || ""}" placeholder="例: island-test"></label>
-  <p class="scoreline">状態: ${state.online.status}</p>
-  <textarea id="firebaseConfigInput" class="share-code" placeholder="Firebase Consoleの firebaseConfig を貼り付け"></textarea>
-  <textarea id="shareCode" class="share-code" placeholder="盤面コードを貼り付け"></textarea>`;
-}
-
-function renderSupplies() {
-  const s = state.supplies;
-  return `<div class="chips"><span class="chip">木材 ${s.wood}</span><span class="chip">石材 ${s.stone}</span><span class="chip">食料 ${s.food}</span><span class="chip">薬草 ${s.herb}</span><span class="chip">部品 ${s.parts}</span><span class="chip">手がかり ${s.clue}</span></div>`;
+    ${Object.entries(resourceLabels).map(([key, label]) => `<button data-resource="${key}">${label}+1</button>`).join("")}
+    <button data-action="moveRobber">盗賊を選択タイルへ</button>
+  </div>`;
 }
 
 function renderPlayers() {
-  const p = state.progress;
-  const t = targets();
-  playersPanel.innerHTML = `<h2>脱出状況</h2><p class="scoreline">目標: ${t.turn}ターン以内</p>
-    <div class="chips"><span class="chip">橋 ${p.bridges}/${t.bridges}</span><span class="chip">修理 ${p.repair}/${t.repair}</span><span class="chip">信号 ${p.signal}/${t.signal}</span><span class="chip">航路 ${p.route}/${t.route}</span><span class="chip danger">危険 ${p.danger}/6</span></div>
-    ${renderSupplies()}
-    <h2>漂流者</h2><div class="player-list">${state.players.map((player) => `<article class="player-card" style="--owner:${player.color}"><div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><span class="chip">${player.role}</span></div><div class="chips"><span class="chip ${player.bot ? "" : "gold"}">${player.bot ? "Bot" : "あなた"}</span><span class="chip ${player.acted ? "gold" : ""}">${player.acted ? "移動済" : "未移動"}</span><span class="chip">協力中</span></div></article>`).join("")}</div>${renderLog()}`;
+  const roll = state.lastRoll ? `${state.lastRoll.d1}+${state.lastRoll.d2}=${state.lastRoll.total}` : "未ロール";
+  playersPanel.innerHTML = `<h2>状況</h2>
+    <p class="scoreline">手番: <strong>${currentPlayer().name}</strong></p>
+    <p class="scoreline">ダイス: ${roll}</p>
+    <h2>プレイヤー</h2>
+    <div class="player-list">${state.players.map((player, index) => `<article class="player-card ${index === state.currentPlayer ? "active-player" : ""}" style="--owner:${player.color}">
+      <div class="player-head"><strong><span class="swatch"></span>${player.name}</strong><span class="chip gold">${victoryPoints(player)}点</span></div>
+      <div class="chips"><span class="chip">開拓地${player.settlements}</span><span class="chip">街${player.cities}</span><span class="chip">道${player.roads}</span><span class="chip">発展${player.devCards}</span></div>
+      <p class="resource-line">${resourceText(player.resources)}</p>
+    </article>`).join("")}</div>
+    ${renderLog()}`;
 }
 
 function renderLog() {
@@ -658,32 +360,44 @@ function render() {
   renderPlayers();
 }
 
+function plainState() {
+  return {
+    turn: state.turn,
+    currentPlayer: state.currentPlayer,
+    lastRoll: state.lastRoll,
+    players: state.players,
+    map: state.map,
+    robberTileId: state.robberTileId,
+    selectedTileId: state.selectedTileId,
+    log: state.log,
+  };
+}
+
+function applyState(data) {
+  Object.assign(state, data);
+}
+
+function saveAndRender() {
+  localStorage.setItem("simple-catan-state", JSON.stringify(plainState()));
+  render();
+}
+
 document.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const tile = target.closest("[data-tile]");
-  if (tile instanceof HTMLElement) moveSelected(tile.dataset.tile);
-  if (target.dataset.actionPlayer) doTileAction(target.dataset.actionPlayer);
-  if (target.dataset.adjust) {
-    const [path, amount] = target.dataset.adjust.split(":");
-    adjust(path, Number(amount));
-  }
-  if (target.dataset.night) triggerNight(target.dataset.night);
-  if (target.dataset.damageBridge) damageBridge(target.dataset.damageBridge);
-  if (target.dataset.action === "nextTurn") nextTurn();
-  if (target.dataset.action === "export") exportState();
-  if (target.dataset.action === "import") importState(document.querySelector("#shareCode").value);
-  if (target.dataset.action === "saveFirebase") saveFirebaseConfig(document.querySelector("#firebaseConfigInput").value);
-  if (target.dataset.action === "createRoom") connectRoom(document.querySelector("#roomIdInput").value, true);
-  if (target.dataset.action === "joinRoom") connectRoom(document.querySelector("#roomIdInput").value, false);
-});
-
-document.addEventListener("change", (event) => {
-  const target = event.target;
-  if (target instanceof HTMLSelectElement && target.id === "selectedPlayer") {
-    state.selectedPlayerId = target.value;
+  if (tile instanceof HTMLElement) {
+    state.selectedTileId = tile.dataset.tile;
     saveAndRender();
   }
+  if (target.dataset.action === "roll") rollDice();
+  if (target.dataset.action === "buildSettlement") buildSettlement();
+  if (target.dataset.action === "buildRoad") buildRoad();
+  if (target.dataset.action === "buildCity") buildCity();
+  if (target.dataset.action === "buyDev") buyDevCard();
+  if (target.dataset.action === "moveRobber") moveRobber();
+  if (target.dataset.action === "nextTurn") nextTurn();
+  if (target.dataset.resource) giveResource(target.dataset.resource);
 });
 
 document.querySelector("#startGame").addEventListener("click", startGame);

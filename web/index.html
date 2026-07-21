@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>漂流島脱出 Web Prototype</title>
+    <title>Simple Catan Prototype</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Co-op survival island prototype</p>
-          <h1>漂流島脱出</h1>
+          <p class="eyebrow">classic resource settlement prototype</p>
+          <h1>Simple Catan</h1>
         </div>
         <div class="round-box">
           <span>Turn</span>
@@ -21,26 +21,22 @@
 
       <section class="setup" id="setupPanel">
         <div class="section-title">
-          <h2>漂流者を登録</h2>
-          <p>全員が同じ海岸から始め、島を探索して協力脱出を目指します。夜にはランダムなアクシデントが起こります。</p>
+          <h2>プレイヤー登録</h2>
+          <p>19枚の地形タイルで資源を集め、道・開拓地・街を建てて10点を目指す簡易カタンです。</p>
         </div>
         <div class="setup-grid">
           <label>人数
             <select id="playerCount">
+              <option value="3">3人</option>
               <option value="4">4人</option>
-              <option value="5">5人</option>
             </select>
           </label>
           <label>乱数シード
-            <input id="seedInput" type="text" value="island-1" />
-          </label>
-          <label class="check-row">
-            <input id="soloMode" type="checkbox" checked />
-            ソロテスト: P1以外を自動操作
+            <input id="seedInput" type="text" value="catan-1" />
           </label>
         </div>
         <div class="names" id="nameFields"></div>
-        <button class="primary" id="startGame">漂着する</button>
+        <button class="primary" id="startGame">ゲーム開始</button>
       </section>
 
       <section class="board hidden" id="gamePanel">
