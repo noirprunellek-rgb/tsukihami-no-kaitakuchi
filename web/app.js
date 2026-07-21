@@ -296,11 +296,11 @@ function renderPhase() {
 
 function renderMap() {
   let index = 0;
-  return `<div class="map-wrap large-map">${layoutRows.map((length) => {
+  return `<div class="map-wrap large-map"><div class="map-frame">${layoutRows.map((length) => {
     const tiles = state.map.slice(index, index + length);
     index += length;
     return `<div class="hex-row row-${length}">${tiles.map(renderTile).join("")}</div>`;
-  }).join("")}</div>`;
+  }).join("")}</div></div>`;
 }
 
 function renderTile(tile) {

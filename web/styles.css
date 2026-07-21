@@ -219,11 +219,24 @@ button:hover {
   justify-items: center;
 }
 
+.map-frame {
+  display: grid;
+  justify-items: center;
+  min-width: max-content;
+  padding: 58px 74px;
+  background:
+    radial-gradient(circle at 24% 24%, rgba(255, 255, 255, 0.28), transparent 8%),
+    radial-gradient(circle at 74% 70%, rgba(255, 255, 255, 0.18), transparent 11%),
+    linear-gradient(145deg, #2684b9 0%, #0f5f94 58%, #0b4d7f 100%);
+  clip-path: polygon(25% 2%, 75% 2%, 99% 50%, 75% 98%, 25% 98%, 1% 50%);
+  box-shadow: inset 0 0 0 10px rgba(255, 255, 255, 0.16), 0 18px 30px rgba(30, 40, 52, 0.2);
+}
+
 .hex-row {
   display: flex;
   justify-content: center;
   gap: 0;
-  margin-top: -20px;
+  margin-top: -27px;
   min-width: max-content;
 }
 
@@ -236,14 +249,15 @@ button:hover {
   display: grid;
   place-items: center;
   align-content: center;
-  width: 94px;
-  height: 82px;
-  margin: 0 -10px;
-  border: 2px solid rgba(31, 38, 44, 0.22);
+  width: 122px;
+  height: 106px;
+  margin: 0 -15px;
+  border: 4px solid rgba(231, 197, 124, 0.9);
   background: #ddd;
   clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
   color: #fff;
   cursor: pointer;
+  box-shadow: inset 0 0 0 2px rgba(82, 62, 30, 0.2);
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
 }
 
@@ -253,8 +267,9 @@ button:hover {
 
 .hex.selected {
   border-color: #ffffff;
-  outline: 3px solid var(--gold);
-  outline-offset: 2px;
+  filter: brightness(1.08) saturate(1.08);
+  outline: 4px solid var(--gold);
+  outline-offset: -2px;
 }
 
 .hex.forest {
@@ -294,14 +309,15 @@ button:hover {
 
 .hex-num {
   position: absolute;
-  top: 9px;
+  top: 36px;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 238, 198, 0.94);
   color: #1f252d;
+  box-shadow: 0 1px 3px rgba(32, 36, 42, 0.2);
   text-shadow: none;
   font-weight: 900;
 }
@@ -313,8 +329,8 @@ button:hover {
 
 .robber {
   position: absolute;
-  left: 8px;
-  top: 9px;
+  left: 15px;
+  top: 16px;
   display: grid;
   place-items: center;
   width: 26px;
@@ -330,7 +346,7 @@ button:hover {
 .building,
 .road-mark {
   position: absolute;
-  bottom: 8px;
+  bottom: 13px;
   display: grid;
   place-items: center;
   min-width: 28px;
@@ -351,20 +367,20 @@ button:hover {
 }
 
 .road-mark {
-  right: 6px;
-  bottom: 6px;
+  right: 12px;
+  bottom: 12px;
   min-width: 24px;
   min-height: 20px;
   background: rgba(32, 36, 42, 0.7);
 }
 
 .hex strong {
-  margin-top: 6px;
-  font-size: 1.1rem;
+  margin-top: -18px;
+  font-size: 1.35rem;
 }
 
 .hex small {
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 800;
 }
 
@@ -581,23 +597,36 @@ dialog::backdrop {
     display: grid;
   }
 
+  .map-frame {
+    padding: 42px 48px;
+  }
+
   .hex {
-    width: 72px;
-    height: 64px;
-    margin: 0 -8px;
+    width: 82px;
+    height: 72px;
+    margin: 0 -10px;
+    border-width: 3px;
   }
 
   .hex-row {
     gap: 0;
-    margin-top: -16px;
+    margin-top: -19px;
   }
 
   .hex strong {
-    font-size: 1.05rem;
+    margin-top: -13px;
+    font-size: 1rem;
   }
 
   .hex small {
-    font-size: 0.72rem;
+    font-size: 0.66rem;
+  }
+
+  .hex-num {
+    top: 24px;
+    width: 27px;
+    height: 27px;
+    font-size: 0.78rem;
   }
 
   .hex em {
